@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yeastar P-Series Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- PWA Manifest and Theme Color -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#111827">
+    <link rel="apple-touch-icon" href="https://placehold.co/192x192/3498db/FFFFFF?text=PBX">
+
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .loader {
+            border-top-color: #3498db;
+            -webkit-animation: spin 1s linear infinite;
+            animation: spin 1s linear infinite;
+        }
+        @-webkit-keyframes spin {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200">
+
+    <div class="container mx-auto p-4 max-w-2xl">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-white">Yeastar PBX Dashboard</h1>
+            <p class="text-gray-400">Monitor your P-Series Cloud PBX</p>
+        </header>
+
+        <!-- API Configuration -->
+        <div id="api-config-section" class="bg-gray-800 p-6 rounded-lg shadow-lg mb-6">
+            <h2 class="text-xl font-semibold mb-4 text-white">API Configuration</h2>
+            <div class="space-y-4">
+                <div>
+                    <label for="pbx-host" class="block text-sm font-medium text-gray-400">PBX Host URL</label>
+                    <input type="text" id="pbx-host" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-blue-500 focus:border-blue-500" placeholder="pbx.yeastarcloud.com">
+                </div>
+                <div>
+                    <label for="client-id" class="block text-sm font-medium text-gray-400">Client ID</label>
+                    <input type="text" id="client-id" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-blue-500 focus:border-blue-500" placeholder="Your Client ID">
+                </div>
+                <div>
+                    <label for="client-secret" class="block text-sm font-medium text-gray-400">Client Secret</label>
+                    <input type="password" id="client-secret" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-blue-500 focus:border-blue-500" placeholder="Your Client Secret">
+                </div>
+                <button id="connect-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">Connect & Fetch Data</button>
+                 <button id="save-config-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 mt-2">Save Config</button>
+                 <div class="text-center mt-4">
+                    <a href="https://cors-anywhere.herokuapp.com/" target="_blank" class="text-sm text-blue-400 hover:underline">Connection issues? Click here to activate the API proxy.</a>
+                </div>
+            </div>
+             <p class="text-xs text-gray-500 mt-4">Note: If you encounter connection issues, ensure your current IP address is whitelisted in your Yeastar PBX's API settings (Integrations > API > IP Restriction).</p>
+        </div>
+
+        <div id="dashboard-content" class="hidden">
+            <!-- Today's Stats -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg mb-6">
+                <h2 class="text-xl font-semibold mb-4 text-white">Today's Stats</h2>
+                <div id="stats-loader" class="flex justify-center items-center h-24">
+                    <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+                </div>
+                <div id="stats-content" class="hidden">
+                    <div id="overall-stats" class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 text-center">
+                        <!-- Overall stats will be injected here -->
+                    </div>
+                    <div id="extension-stats">
+                        <h3 class="text-lg font-semibold mb-2 text-white">Per Extension</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full bg-gray-700 rounded-lg">
+                                <thead>
+                                    <tr>
+                                        <th class="px-4 py-2 text-left">Extension</th>
+                                        <th class="px-4 py-2 text-center">Answered Calls</th>
+                                        <th class="px-4 py-2 text-center">Total Duration</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="extension-stats-body">
+                                    <!-- Extension stats rows will be injected here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inbound Routing -->
+            <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 text-white">Inbound Routing</h2>
+                <div id="routing-loader" class="flex justify-center items-center h-24">
+                    <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+                </div>
+                <div id="routing-content" class="hidden space-y-4">
+                    <!-- Inbound routes will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for editing inbound route -->
+    <div id="edit-route-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-md m-4">
+            <h3 id="modal-title" class="text-lg font-bold mb-4">Edit Inbound Route</h3>
+            <input type="hidden" id="edit-route-id">
+            <input type="hidden" id="edit-route-time-condition">
+            
+            <div id="default-dest-container" class="space-y-4 hidden">
+                 <div>
+                    <label for="default-dest-select" class="block text-sm font-medium text-gray-400">Default Destination</label>
+                    <select id="default-dest-select" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-blue-500 focus:border-blue-500"></select>
+                </div>
+            </div>
+
+            <div id="time-condition-container" class="space-y-4 hidden">
+                <div>
+                    <label for="office-hours-dest-select" class="block text-sm font-medium text-gray-400">Office Hours Destination</label>
+                    <select id="office-hours-dest-select" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-blue-500 focus:border-blue-500"></select>
+                </div>
+                <div>
+                    <label for="outside-office-hours-dest-select" class="block text-sm font-medium text-gray-400">Outside Office Hours Destination</label>
+                     <select id="outside-office-hours-dest-select" class="mt-1 block w-full bg-gray-700 border-gray-600 rounded-md shadow-sm text-white focus:ring-blue-500 focus:border-blue-500"></select>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end space-x-3">
+                <button id="cancel-edit-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg">Cancel</button>
+                <button id="save-route-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // DOM Elements
+            const pbxHostInput = document.getElementById('pbx-host');
+            const clientIdInput = document.getElementById('client-id');
+            const clientSecretInput = document.getElementById('client-secret');
+            const connectBtn = document.getElementById('connect-btn');
+            const saveConfigBtn = document.getElementById('save-config-btn');
+            const apiConfigSection = document.getElementById('api-config-section');
+            const dashboardContent = document.getElementById('dashboard-content');
+
+            // Load saved config
+            const savedConfig = JSON.parse(localStorage.getItem('yeastarConfig'));
+            if (savedConfig) {
+                pbxHostInput.value = savedConfig.host;
+                clientIdInput.value = savedConfig.clientId;
+                clientSecretInput.value = savedConfig.clientSecret;
+            }
+
+            // Global state
+            let accessToken = sessionStorage.getItem('yeastar_accessToken');
+            let pbxHost = '';
+            let extensionMap = new Map();
+            let allDestinations = {};
+            let mediaRecorder;
+            let audioChunks = [];
+            
+            const PROXY_URL = 'https://cors-anywhere.herokuapp.com/';
+
+            // --- API HELPER ---
+            async function apiRequest(endpoint, method = 'GET', body = null, isRetry = false) {
+                if (!accessToken) {
+                    if (isRetry) {
+                        alert('Authentication failed. Please check your credentials and connect again.');
+                        return null;
+                    }
+                    console.log("Access token missing, attempting to get a new one...");
+                    const newAccessToken = await getAccessToken(pbxHostInput.value, clientIdInput.value, clientSecretInput.value);
+                    if (newAccessToken) {
+                        accessToken = newAccessToken;
+                        return apiRequest(endpoint, method, body, true);
+                    } else {
+                        return null;
+                    }
+                }
+
+                const url = new URL(`https://${pbxHost}/openapi/v1.0/${endpoint.split('?')[0]}`);
+                const params = new URLSearchParams(endpoint.split('?')[1] || '');
+                params.append('access_token', accessToken);
+                url.search = params.toString();
+
+                const proxiedUrl = PROXY_URL + url.toString();
+
+                const options = {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'YeastarDashboardWebApp',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                };
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+
+                try {
+                    const response = await fetch(proxiedUrl, options);
+                    const responseText = await response.text();
+                    const responseData = JSON.parse(responseText);
+                    
+                    if (responseData.errcode === 10004 && !isRetry) { // Token expired
+                        console.log("Token expired, refreshing...");
+                        accessToken = null;
+                        sessionStorage.removeItem('yeastar_accessToken');
+                        return apiRequest(endpoint, method, body, true);
+                    }
+
+                    if (!response.ok || (responseData.errcode && responseData.errcode !== 0)) {
+                        throw new Error(`API Error ${responseData.errcode}: ${responseData.errmsg}`);
+                    }
+                    return responseData;
+                } catch (error) {
+                    console.error(`Error in apiRequest for ${endpoint}:`, error);
+                     if (error instanceof SyntaxError) {
+                        alert('Failed to parse API response. This is likely a CORS proxy issue. Please click the "Activate API Proxy" link, request temporary access on that page, and then try connecting again.');
+                    } else {
+                        alert(`An error occurred while fetching data from ${endpoint}. ${error.message}`);
+                    }
+                    return null;
+                }
+            }
+            
+            // --- AUTHENTICATION ---
+            async function getAccessToken(host, clientId, clientSecret) {
+                const targetUrl = `https://${host}/openapi/v1.0/get_token`;
+                const url = PROXY_URL + targetUrl;
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'User-Agent': 'YeastarDashboardWebApp',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({
+                            username: clientId,
+                            password: clientSecret
+                        })
+                    });
+                    
+                    const responseText = await response.text();
+                    const data = JSON.parse(responseText);
+
+                    if (data.errcode === 0) {
+                        sessionStorage.setItem('yeastar_accessToken', data.access_token);
+                        return data.access_token;
+                    } else {
+                        throw new Error(`Error ${data.errcode}: ${data.errmsg}`);
+                    }
+                } catch (error) {
+                    console.error('Error getting access token:', error);
+                    if (error instanceof SyntaxError) {
+                        alert('Failed to parse API response. This is likely a CORS proxy issue. Please click the "Activate API Proxy" link, request temporary access on that page, and then try connecting again.');
+                    } else {
+                        alert(`Failed to get access token: ${error.message}. Please check your credentials and PBX Host URL.`);
+                    }
+                    return null;
+                }
+            }
+
+
+            // --- DATA FETCHING AND RENDERING ---
+            async function fetchAllDestinations() {
+                const destinationTypes = ['extension', 'ivr', 'queue', 'ring_group', 'group_vm'];
+                allDestinations = {};
+
+                const promises = destinationTypes.map(async (type) => {
+                    const result = await apiRequest(`system/get_menuoptions?menu=${type}`);
+                    if (result && result.data) {
+                        allDestinations[type] = result.data.map(item => ({
+                            id: item.value,
+                            name: item.text
+                        }));
+                    }
+                });
+                await Promise.all(promises);
+            }
+
+            async function fetchAllExtensions() {
+                const result = await apiRequest('extension/list?page_size=1000');
+                if (result && result.data) {
+                    extensionMap.clear();
+                    result.data.forEach(ext => {
+                        extensionMap.set(ext.number, ext.id);
+                    });
+                    return result.data.map(ext => ext.id);
+                }
+                return [];
+            }
+
+            // 1. Today's Stats
+            async function fetchAndRenderStats(extensionIds) {
+                setLoader('stats', true);
+                
+                if (extensionIds.length === 0) {
+                    console.log("No extensions found to fetch stats for.");
+                    renderStats([]);
+                    setLoader('stats', false);
+                    return;
+                }
+
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+
+                const startTime = `${year}/${month}/${day} 00:00:00`;
+                const endTime = `${year}/${month}/${day} 23:59:59`;
+
+                const endpoint = `call_report/list?type=extcallstatistics&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}&ext_id_list=${extensionIds.join(',')}`;
+                const result = await apiRequest(endpoint);
+
+                if (result && result.errcode === 0 && result.ext_call_statistics_list) {
+                    renderStats(result.ext_call_statistics_list);
+                } else {
+                    console.error("Failed to fetch stats or no stats available:", result);
+                    renderStats([]);
+                }
+                setLoader('stats', false);
+            }
+
+            function renderStats(stats) {
+                let totalCalls = 0;
+                let totalDuration = 0;
+                
+                const extensionStatsBody = document.getElementById('extension-stats-body');
+                extensionStatsBody.innerHTML = '';
+
+                if (!stats || stats.length === 0) {
+                    const row = `
+                        <tr class="border-b border-gray-600">
+                            <td colspan="3" class="px-4 py-2 text-center text-gray-400">No call statistics for today.</td>
+                        </tr>
+                    `;
+                    extensionStatsBody.innerHTML = row;
+                } else {
+                    stats.forEach(ext => {
+                        const row = `
+                            <tr class="border-b border-gray-600">
+                                <td class="px-4 py-2">${ext.ext_name} (${ext.ext_num})</td>
+                                <td class="px-4 py-2 text-center">${ext.answered_calls}</td>
+                                <td class="px-4 py-2 text-center">${formatDuration(ext.total_talking_time)}</td>
+                            </tr>
+                        `;
+                        extensionStatsBody.innerHTML += row;
+
+                        totalCalls += ext.answered_calls;
+                        totalDuration += ext.total_talking_time;
+                    });
+                }
+
+                const overallStatsContainer = document.getElementById('overall-stats');
+                overallStatsContainer.innerHTML = `
+                    <div class="bg-gray-700 p-4 rounded-lg">
+                        <p class="text-sm text-gray-400">Total Answered Calls</p>
+                        <p class="text-2xl font-bold">${totalCalls}</p>
+                    </div>
+                    <div class="bg-gray-700 p-4 rounded-lg">
+                        <p class="text-sm text-gray-400">Total Talk Duration</p>
+                        <p class="text-2xl font-bold">${formatDuration(totalDuration)}</p>
+                    </div>
+                     <div class="bg-gray-700 p-4 rounded-lg">
+                        <p class="text-sm text-gray-400">Extensions</p>
+                        <p class="text-2xl font-bold">${stats ? stats.length : 0}</p>
+                    </div>
+                `;
+            }
+
+            // 2. Inbound Routing
+            async function fetchAndRenderInboundRoutes() {
+                setLoader('routing', true);
+                const result = await apiRequest('inbound_route/list?page_size=100');
+                if (result && result.errcode === 0) {
+                    renderInboundRoutes(result.data);
+                } else {
+                     renderInboundRoutes([]);
+                }
+                setLoader('routing', false);
+            }
+
+            function renderInboundRoutes(routes) {
+                const container = document.getElementById('routing-content');
+                container.innerHTML = '';
+                 if (!routes || routes.length === 0) {
+                    container.innerHTML = '<p class="text-gray-400">No inbound routes found.</p>';
+                    return;
+                }
+                routes.forEach(route => {
+                    const routeElement = document.createElement('div');
+                    routeElement.className = 'bg-gray-700 p-4 rounded-lg';
+
+                    let destinationHTML = '';
+                    if (route.time_condition === 'disabled') {
+                        destinationHTML = `<p class="text-sm text-gray-400">Default Destination: <span class="font-medium text-gray-200">${route.default_desination_value || 'Not Set'}</span></p>`;
+                    } else {
+                         destinationHTML = `
+                            <p class="text-sm text-gray-400">Office Hours: <span class="font-medium text-gray-200">${route.business_hours_destination_value || 'Not Set'}</span></p>
+                            <p class="text-sm text-gray-400">Outside Office Hours: <span class="font-medium text-gray-200">${route.outside_business_hours_destination_value || 'Not Set'}</span></p>
+                         `;
+                    }
+
+                    routeElement.innerHTML = `
+                        <div class="flex justify-between items-start mb-3">
+                            <div>
+                                <h4 class="font-bold text-lg">${route.name}</h4>
+                                ${destinationHTML}
+                            </div>
+                        </div>
+                        <div class="border-t border-gray-600 pt-3">
+                            <h5 class="text-sm font-semibold mb-2 text-gray-300">Quick Actions</h5>
+                            <div class="flex gap-2">
+                                <button class="quick-route-btn flex-1 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold py-2 px-2 rounded-lg" data-route-id="${route.id}" data-target-ext="100">Route to Ext 100</button>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(routeElement);
+                });
+                 
+                document.querySelectorAll('.quick-route-btn').forEach(btn => {
+                    btn.addEventListener('click', handleQuickRouteChange);
+                });
+            }
+
+            async function handleQuickRouteChange(event) {
+                const routeId = event.target.dataset.routeId;
+                const targetExtNumber = event.target.dataset.targetExt;
+
+                const targetExtId = extensionMap.get(targetExtNumber);
+
+                if (!targetExtId) {
+                    alert(`Error: Extension ${targetExtNumber} not found on the PBX.`);
+                    return;
+                }
+
+                const payload = {
+                    id: parseInt(routeId),
+                    def_dest: 'extension',
+                    def_dest_value: targetExtId.toString()
+                };
+                
+                const result = await apiRequest('inbound_route/update', 'POST', payload);
+                if (result && result.errcode === 0) {
+                    alert(`Route successfully changed to Extension ${targetExtNumber}.`);
+                    fetchAndRenderInboundRoutes();
+                } else {
+                    alert('Failed to update route.');
+                }
+            }
+            
+            // --- UTILITY FUNCTIONS ---
+            function setLoader(type, isLoading) {
+                const loader = document.getElementById(`${type}-loader`);
+                const content = document.getElementById(`${type}-content`);
+                if (!loader || !content) return; 
+                if (isLoading) {
+                    loader.style.display = 'flex';
+                    content.classList.add('hidden');
+                } else {
+                    loader.style.display = 'none';
+                    content.classList.remove('hidden');
+                }
+            }
+
+            function formatDuration(seconds) {
+                if (seconds === null || seconds === undefined) return '0s';
+                if (seconds < 60) return `${seconds}s`;
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                return `${minutes}m ${remainingSeconds}s`;
+            }
+
+            function getCallTypeColor(type) {
+                if (!type) return 'bg-gray-500 text-white';
+                switch (type.toLowerCase()) {
+                    case 'inbound': return 'bg-green-500 text-white';
+                    case 'outbound': return 'bg-blue-500 text-white';
+                    case 'internal': return 'bg-yellow-500 text-black';
+                    default: return 'bg-gray-500 text-white';
+                }
+            }
+
+            // --- PWA Service Worker ---
+            function registerServiceWorker() {
+                if ('serviceWorker' in navigator) {
+                    const swContent = `
+                        const CACHE_NAME = 'yeastar-dashboard-cache-v1';
+                        const urlsToCache = [
+                            '/',
+                            'index.html'
+                        ];
+                        self.addEventListener('install', event => {
+                            event.waitUntil(
+                                caches.open(CACHE_NAME)
+                                    .then(cache => {
+                                        console.log('Opened cache');
+                                        return cache.addAll(urlsToCache);
+                                    })
+                            );
+                        });
+                        self.addEventListener('fetch', event => {
+                            event.respondWith(
+                                caches.match(event.request)
+                                    .then(response => {
+                                        if (response) {
+                                            return response;
+                                        }
+                                        return fetch(event.request);
+                                    }
+                                )
+                            );
+                        });
+                    `;
+                    const blob = new Blob([swContent], {type: 'application/javascript'});
+                    const swUrl = URL.createObjectURL(blob);
+
+                    navigator.serviceWorker.register(swUrl)
+                        .then(registration => {
+                            console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                        })
+                        .catch(err => {
+                            console.log('ServiceWorker registration failed: ', err);
+                        });
+                }
+            }
+
+            function setupManifest() {
+                 const manifest = {
+                    "name": "Yeastar PBX Dashboard",
+                    "short_name": "PBX Dash",
+                    "start_url": ".",
+                    "display": "standalone",
+                    "background_color": "#111827",
+                    "theme_color": "#111827",
+                    "icons": [
+                        {
+                            "src": "https://placehold.co/192x192/3498db/FFFFFF?text=PBX",
+                            "sizes": "192x192",
+                            "type": "image/png"
+                        },
+                        {
+                            "src": "https://placehold.co/512x512/3498db/FFFFFF?text=PBX",
+                            "sizes": "512x512",
+                            "type": "image/png"
+                        }
+                    ]
+                };
+                const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+                const manifestURL = URL.createObjectURL(blob);
+                document.querySelector('link[rel="manifest"]').setAttribute('href', manifestURL);
+            }
+
+            // --- INITIALIZATION ---
+            setupManifest();
+            registerServiceWorker();
+
+            // --- EVENT LISTENERS ---
+            connectBtn.addEventListener('click', async () => {
+                pbxHost = pbxHostInput.value.trim();
+                const clientId = clientIdInput.value.trim();
+                const clientSecret = clientSecretInput.value.trim();
+
+                if (!pbxHost || !clientId || !clientSecret) {
+                    alert('Please fill in all API configuration fields.');
+                    return;
+                }
+                
+                sessionStorage.removeItem('yeastar_accessToken');
+                accessToken = null;
+
+                const initialAccessToken = await getAccessToken(pbxHost, clientId, clientSecret);
+                if (initialAccessToken) {
+                    accessToken = initialAccessToken;
+                    apiConfigSection.classList.add('hidden');
+                    dashboardContent.classList.remove('hidden');
+                    
+                    const extensionIds = await fetchAllExtensions();
+                    
+                    if(extensionIds) {
+                        Promise.all([
+                            fetchAndRenderStats(extensionIds),
+                            fetchAndRenderInboundRoutes()
+                        ]);
+                    }
+                }
+            });
+            
+            saveConfigBtn.addEventListener('click', () => {
+                const config = {
+                    host: pbxHostInput.value.trim(),
+                    clientId: clientIdInput.value.trim(),
+                    clientSecret: clientSecretInput.value.trim()
+                };
+                if(config.host && config.clientId && config.clientSecret) {
+                    localStorage.setItem('yeastarConfig', JSON.stringify(config));
+                    alert('Configuration saved to your browser\'s local storage.');
+                } else {
+                    alert('Please fill all fields before saving.');
+                }
+            });
+
+        });
+    </script>
+</body>
+</html>

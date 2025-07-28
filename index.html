@@ -41,10 +41,7 @@
             </div>
             <button id="connect-btn" class="btn btn-primary">Connect & Fetch Data</button>
             <button id="save-config-btn" class="btn btn-secondary">Save Config</button>
-            <div class="text-center mt-4">
-                <a href="https://cors-anywhere.herokuapp.com/" target="_blank" class="link">Connection issues? Click here to activate the API proxy.</a>
-            </div>
-            <p style="font-size: 0.75rem; opacity: 0.7; margin-top: 1rem;">Note: If you encounter connection issues, ensure your current IP address is whitelisted in your Yeastar PBX's API settings (Integrations > API > IP Restriction).</p>
+            <p style="font-size: 0.75rem; opacity: 0.7; margin-top: 1rem;">Note: If you encounter connection issues, ensure your current IP address is whitelisted in your Yeastar PBX's API settings (Integrations > API > IP Restriction). If running this file locally, you may need a browser extension to handle CORS.</p>
         </div>
 
         <div id="dashboard-content" class="hidden">
@@ -188,8 +185,6 @@
             let pbxHost = '';
             let extensionMap = new Map();
             
-            const PROXY_URL = 'https://cors-anywhere.herokuapp.com/';
-
             // --- API HELPER ---
             async function apiRequest(endpoint, method = 'GET', body = null, isRetry = false) {
                 if (!accessToken) {
@@ -212,8 +207,6 @@
                 params.append('access_token', accessToken);
                 url.search = params.toString();
 
-                const proxiedUrl = PROXY_URL + url.toString();
-
                 const options = {
                     method,
                     headers: {
@@ -227,7 +220,7 @@
                 }
 
                 try {
-                    const response = await fetch(proxiedUrl, options);
+                    const response = await fetch(url, options);
                     const responseText = await response.text();
                     const responseData = JSON.parse(responseText);
                     
@@ -255,8 +248,7 @@
             
             // --- AUTHENTICATION ---
             async function getAccessToken(host, clientId, clientSecret) {
-                const targetUrl = `https://${host}/openapi/v1.0/get_token`;
-                const url = PROXY_URL + targetUrl;
+                const url = `https://${host}/openapi/v1.0/get_token`;
                 try {
                     const response = await fetch(url, {
                         method: 'POST',
@@ -282,8 +274,8 @@
                     }
                 } catch (error) {
                     console.error('Error getting access token:', error);
-                    if (error instanceof SyntaxError) {
-                        alert('Failed to parse API response. This is likely a CORS proxy issue. Please click the "Activate API Proxy" link, request temporary access on that page, and then try connecting again.');
+                    if (error instanceof TypeError) {
+                        alert('Connection Failed: This is likely a CORS issue. Make sure your IP is whitelisted on the PBX and, if running locally, use a browser extension to handle CORS.');
                     } else {
                         alert(`Failed to get access token: ${error.message}. Please check your credentials and PBX Host URL.`);
                     }

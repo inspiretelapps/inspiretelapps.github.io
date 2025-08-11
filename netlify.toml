@@ -1,0 +1,11 @@
+[build]
+  functions = "api"
+  publish = "."
+
+[[redirects]]
+  from = "/api/proxy/*"
+  to = "/.netlify/functions/proxy"
+  status = 200
+
+[functions]
+  directory = "api"

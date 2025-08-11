@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxy Test - Yeastar Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 20px; }
+        .error { background: #f8d7da; color: #721c24; }
+        .success { background: #d4edda; color: #155724; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Proxy Service Test</h1>
+    <p>Test your proxy service before updating your main dashboard.</p>
+    
+    <div class="form-group">
+        <label for="proxy-url">Proxy URL (without /api/proxy/):</label>
+        <input type="text" id="proxy-url" placeholder="https://your-project.vercel.app" />
+        <small>Enter your proxy base URL (e.g., https://my-proxy.vercel.app)</small>
+    </div>
+    
+    <div class="form-group">
+        <label for="pbx-host">PBX Host:</label>
+        <input type="text" id="pbx-host" placeholder="pbx.yeastarcloud.com" />
+        <small>Your PBX hostname (without https://)</small>
+    </div>
+    
+    <div class="form-group">
+        <label for="client-id">Client ID:</label>
+        <input type="text" id="client-id" placeholder="Your Client ID" />
+    </div>
+    
+    <div class="form-group">
+        <label for="client-secret">Client Secret:</label>
+        <input type="password" id="client-secret" placeholder="Your Client Secret" />
+    </div>
+    
+    <button onclick="testProxy()">🧪 Test Proxy Connection</button>
+    
+    <div id="result" class="result" style="display: none;"></div>
+    
+    <script>
+        async function testProxy() {
+            const proxyUrl = document.getElementById('proxy-url').value.trim();
+            const pbxHost = document.getElementById('pbx-host').value.trim();
+            const clientId = document.getElementById('client-id').value.trim();
+            const clientSecret = document.getElementById('client-secret').value.trim();
+            
+            if (!proxyUrl || !pbxHost || !clientId || !clientSecret) {
+                showResult('Please fill in all fields.', 'error');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Testing proxy connection...';
+            resultDiv.className = 'result';
+            
+            try {
+                // Test 1: Check if proxy is accessible
+                console.log('Testing proxy accessibility...');
+                const testUrl = `${proxyUrl}/api/proxy/${pbxHost}/openapi/v1.0/get_token`;
+                console.log('Test URL:', testUrl);
+                
+                const response = await fetch(testUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'YeastarDashboardTest',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({
+                        username: clientId,
+                        password: clientSecret
+                    })
+                });
+                
+                const responseText = await response.text();
+                console.log('Response status:', response.status);
+                console.log('Response text:', responseText);
+                
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (e) {
+                    data = { rawResponse: responseText };
+                }
+                
+                if (response.ok && data.errcode === 0) {
+                    showResult(`
+                        ✅ <strong>Proxy Test Successful!</strong><br><br>
+                        <strong>Access Token:</strong> ${data.access_token.substring(0, 20)}...<br>
+                        <strong>Token Type:</strong> ${data.token_type || 'Bearer'}<br>
+                        <strong>Expires In:</strong> ${data.expires_in || 'Unknown'} seconds<br><br>
+                        Your proxy is working correctly! You can now update your main dashboard.
+                    `, 'success');
+                } else if (data.errcode) {
+                    showResult(`
+                        ⚠️ <strong>PBX Authentication Failed</strong><br><br>
+                        <strong>Error Code:</strong> ${data.errcode}<br>
+                        <strong>Error Message:</strong> ${data.errmsg}<br><br>
+                        The proxy is working, but your PBX credentials are incorrect. Please check your Client ID and Client Secret.
+                    `, 'error');
+                } else {
+                    showResult(`
+                        ❌ <strong>Unexpected Response</strong><br><br>
+                        <strong>Status:</strong> ${response.status}<br>
+                        <strong>Response:</strong> ${responseText}<br><br>
+                        The proxy responded, but with an unexpected format. Check the console for details.
+                    `, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Proxy test error:', error);
+                showResult(`
+                    ❌ <strong>Proxy Test Failed</strong><br><br>
+                    <strong>Error:</strong> ${error.message}<br><br>
+                    This usually means:<br>
+                    • Your proxy URL is incorrect<br>
+                    • The proxy service is not deployed<br>
+                    • There's a network issue<br><br>
+                    Check the console for more details.
+                `, 'error');
+            }
+        }
+        
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = message;
+            resultDiv.className = `result ${type}`;
+        }
+        
+        // Load saved config if available
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedConfig = JSON.parse(localStorage.getItem('yeastarConfig'));
+            if (savedConfig) {
+                document.getElementById('proxy-url').value = savedConfig.proxyUrl || '';
+                document.getElementById('pbx-host').value = savedConfig.host || '';
+                document.getElementById('client-id').value = savedConfig.clientId || '';
+                document.getElementById('client-secret').value = savedConfig.clientSecret || '';
+            }
+        });
+    </script>
+</body>
+</html>

@@ -28,6 +28,10 @@
         <div id="api-config-section" class="card">
             <h2>API Configuration</h2>
             <div class="form-group">
+                <label for="proxy-url">Proxy URL</label>
+                <input type="text" id="proxy-url" class="input" placeholder="https://your-proxy.herokuapp.com/">
+            </div>
+            <div class="form-group">
                 <label for="pbx-host">PBX Host URL</label>
                 <input type="text" id="pbx-host" class="input" placeholder="pbx.yeastarcloud.com">
             </div>
@@ -41,10 +45,7 @@
             </div>
             <button id="connect-btn" class="btn btn-primary">Connect & Fetch Data</button>
             <button id="save-config-btn" class="btn btn-secondary">Save Config</button>
-            <div class="text-center mt-4">
-                <a href="https://cors-anywhere.herokuapp.com/" target="_blank" class="link">Connection issues? Click here, then click "Request temporary access".</a>
-            </div>
-            <p style="font-size: 0.75rem; opacity: 0.7; margin-top: 1rem;">Note: If you encounter connection issues, ensure the proxy's IP address is whitelisted in your Yeastar PBX's API settings (Integrations > API > IP Restriction).</p>
+            <p style="font-size: 0.75rem; opacity: 0.7; margin-top: 1rem;">Note: Ensure the IP address of your proxy is whitelisted in your Yeastar PBX's API settings.</p>
         </div>
 
         <div id="dashboard-content" class="hidden">
@@ -166,6 +167,7 @@
             });
 
             // DOM Elements
+            const proxyUrlInput = document.getElementById('proxy-url');
             const pbxHostInput = document.getElementById('pbx-host');
             const clientIdInput = document.getElementById('client-id');
             const clientSecretInput = document.getElementById('client-secret');
@@ -178,6 +180,7 @@
             // Load saved config
             const savedConfig = JSON.parse(localStorage.getItem('yeastarConfig'));
             if (savedConfig) {
+                proxyUrlInput.value = savedConfig.proxyUrl;
                 pbxHostInput.value = savedConfig.host;
                 clientIdInput.value = savedConfig.clientId;
                 clientSecretInput.value = savedConfig.clientSecret;
@@ -186,10 +189,9 @@
             // Global state
             let accessToken = sessionStorage.getItem('yeastar_accessToken');
             let pbxHost = '';
+            let proxyUrl = '';
             let extensionMap = new Map();
             
-            const PROXY_URL = 'https://cors-anywhere.herokuapp.com/';
-
             // --- API HELPER ---
             async function apiRequest(endpoint, method = 'GET', body = null, isRetry = false) {
                 if (!accessToken) {
@@ -207,12 +209,13 @@
                     }
                 }
 
-                const url = new URL(`https://${pbxHost}/openapi/v1.0/${endpoint.split('?')[0]}`);
+                // Build the target URL for the proxy
+                const targetUrl = `${pbxHost}/openapi/v1.0/${endpoint.split('?')[0]}`;
                 const params = new URLSearchParams(endpoint.split('?')[1] || '');
                 params.append('access_token', accessToken);
-                url.search = params.toString();
-
-                const proxiedUrl = PROXY_URL + url.toString();
+                
+                // Use the new proxy format: proxyUrl + /api/proxy/ + targetUrl
+                const finalUrl = `${proxyUrl}/api/proxy/${targetUrl}?${params.toString()}`;
 
                 const options = {
                     method,
@@ -227,7 +230,7 @@
                 }
 
                 try {
-                    const response = await fetch(proxiedUrl, options);
+                    const response = await fetch(finalUrl, options);
                     const responseText = await response.text();
                     const responseData = JSON.parse(responseText);
                     
@@ -255,8 +258,8 @@
             
             // --- AUTHENTICATION ---
             async function getAccessToken(host, clientId, clientSecret) {
-                const targetUrl = `https://${host}/openapi/v1.0/get_token`;
-                const url = PROXY_URL + targetUrl;
+                const targetUrl = `${host}/openapi/v1.0/get_token`;
+                const url = `${proxyUrl}/api/proxy/${targetUrl}`;
                 try {
                     const response = await fetch(url, {
                         method: 'POST',
@@ -282,13 +285,7 @@
                     }
                 } catch (error) {
                     console.error('Error getting access token:', error);
-                    if (error.message && error.message.includes('70087')) {
-                        alert('IP FORBIDDEN Error: The proxy may not be active. Please click the "Connection issues?" link, then on the new page click the "Request temporary access to the demo server" button, and then try connecting again.');
-                    } else if (error instanceof SyntaxError) {
-                        alert('Failed to parse API response. This is likely a CORS proxy issue. Please click the "Connection issues?" link, request temporary access on that page, and then try connecting again.');
-                    } else {
-                        alert(`Failed to get access token: ${error.message}. Please check your credentials and PBX Host URL.`);
-                    }
+                    alert(`Failed to get access token: ${error.message}. Please check your Proxy URL, credentials, and PBX Host URL.`);
                     return null;
                 }
             }
@@ -848,11 +845,12 @@
 
             // --- EVENT LISTENERS ---
             connectBtn.addEventListener('click', async () => {
+                proxyUrl = proxyUrlInput.value.trim();
                 pbxHost = pbxHostInput.value.trim();
                 const clientId = clientIdInput.value.trim();
                 const clientSecret = clientSecretInput.value.trim();
 
-                if (!pbxHost || !clientId || !clientSecret) {
+                if (!proxyUrl || !pbxHost || !clientId || !clientSecret) {
                     alert('Please fill in all API configuration fields.');
                     return;
                 }
@@ -890,11 +888,12 @@
             
             saveConfigBtn.addEventListener('click', () => {
                 const config = {
+                    proxyUrl: proxyUrlInput.value.trim(),
                     host: pbxHostInput.value.trim(),
                     clientId: clientIdInput.value.trim(),
                     clientSecret: clientSecretInput.value.trim()
                 };
-                if(config.host && config.clientId && config.clientSecret) {
+                if(config.proxyUrl && config.host && config.clientId && config.clientSecret) {
                     localStorage.setItem('yeastarConfig', JSON.stringify(config));
                     alert('Configuration saved to your browser\'s local storage.');
                 } else {

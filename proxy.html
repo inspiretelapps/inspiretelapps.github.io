@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yeastar Proxy Service</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 20px; }
+        .error { background: #f8d7da; color: #721c24; }
+        .success { background: #d4edda; color: #155724; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Yeastar Proxy Service</h1>
+    <p>This is a simple proxy service that can help bypass CORS issues.</p>
+    
+    <div class="form-group">
+        <label for="target-url">Target URL:</label>
+        <input type="text" id="target-url" placeholder="https://meyerattorneys.pbx.ycmcloud.co.za/openapi/v1.0/get_token" />
+        <small>Enter the full URL you want to proxy to</small>
+    </div>
+    
+    <div class="form-group">
+        <label for="request-method">Method:</label>
+        <select id="request-method">
+            <option value="GET">GET</option>
+            <option value="POST" selected>POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+        </select>
+    </div>
+    
+    <div class="form-group">
+        <label for="request-body">Request Body (JSON):</label>
+        <textarea id="request-body" rows="4" placeholder='{"username": "your_client_id", "password": "your_client_secret"}'></textarea>
+    </div>
+    
+    <button onclick="makeProxyRequest()">🚀 Make Proxy Request</button>
+    
+    <div id="result" class="result" style="display: none;"></div>
+    
+    <div class="info" style="margin-top: 20px; padding: 15px;">
+        <h3>How to Use:</h3>
+        <ol>
+            <li><strong>For your dashboard:</strong> Use this URL as your proxy: <code>https://your-username.github.io/proxy.html</code></li>
+            <li><strong>Target URL:</strong> The full Yeastar API endpoint you want to call</li>
+            <li><strong>Method:</strong> Usually POST for authentication, GET for data</li>
+            <li><strong>Body:</strong> JSON payload (for POST requests)</li>
+        </ol>
+        
+        <h3>Example for Authentication:</h3>
+        <ul>
+            <li><strong>Target URL:</strong> <code>https://meyerattorneys.pbx.ycmcloud.co.za/openapi/v1.0/get_token</code></li>
+            <li><strong>Method:</strong> POST</li>
+            <li><strong>Body:</strong> <code>{"username": "your_client_id", "password": "your_client_secret"}</code></li>
+        </ul>
+    </div>
+    
+    <script>
+        async function makeProxyRequest() {
+            const targetUrl = document.getElementById('target-url').value.trim();
+            const method = document.getElementById('request-method').value;
+            const body = document.getElementById('request-body').value.trim();
+            
+            if (!targetUrl) {
+                showResult('Please enter a target URL.', 'error');
+                return;
+            }
+            
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '🔄 Making proxy request...';
+            resultDiv.className = 'result';
+            
+            try {
+                // Use a CORS proxy service to make the request
+                const corsProxy = 'https://cors-anywhere.herokuapp.com/';
+                const fullUrl = corsProxy + targetUrl;
+                
+                console.log('Making request to:', fullUrl);
+                
+                const options = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'YeastarDashboardProxy',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                };
+                
+                if (body && method !== 'GET') {
+                    try {
+                        options.body = body;
+                    } catch (e) {
+                        options.body = body;
+                    }
+                }
+                
+                const response = await fetch(fullUrl, options);
+                const responseText = await response.text();
+                
+                console.log('Response status:', response.status);
+                console.log('Response text:', responseText);
+                
+                let jsonData;
+                try {
+                    jsonData = JSON.parse(responseText);
+                } catch (e) {
+                    jsonData = { rawResponse: responseText };
+                }
+                
+                if (response.ok) {
+                    showResult(`
+                        ✅ <strong>Request Successful!</strong><br><br>
+                        <strong>Status:</strong> ${response.status}<br>
+                        <strong>Response:</strong><br>
+                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">${JSON.stringify(jsonData, null, 2)}</pre>
+                    `, 'success');
+                } else {
+                    showResult(`
+                        ⚠️ <strong>Request Failed</strong><br><br>
+                        <strong>Status:</strong> ${response.status}<br>
+                        <strong>Response:</strong><br>
+                        <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">${JSON.stringify(jsonData, null, 2)}</pre>
+                    `, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Proxy request error:', error);
+                showResult(`
+                    ❌ <strong>Request Error</strong><br><br>
+                    <strong>Error:</strong> ${error.message}<br><br>
+                    This usually means:<br>
+                    • The target URL is not accessible<br>
+                    • There's a network issue<br>
+                    • The CORS proxy service is down<br><br>
+                    Check the console for more details.
+                `, 'error');
+            }
+        }
+        
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = message;
+            resultDiv.className = `result ${type}`;
+        }
+        
+        // Load example data
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('target-url').value = 'https://meyerattorneys.pbx.ycmcloud.co.za/openapi/v1.0/get_token';
+            document.getElementById('request-body').value = '{"username": "your_client_id", "password": "your_client_secret"}';
+        });
+    </script>
+</body>
+</html>

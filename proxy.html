@@ -8,18 +8,31 @@
         body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        input, button, select, textarea { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
         button { background: #007bff; color: white; border: none; cursor: pointer; }
         button:hover { background: #0056b3; }
         .result { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-top: 20px; }
         .error { background: #f8d7da; color: #721c24; }
         .success { background: #d4edda; color: #155724; }
         .info { background: #d1ecf1; color: #0c5460; }
+        .proxy-selector { margin-bottom: 20px; }
+        .proxy-selector select { width: auto; margin-right: 10px; }
     </style>
 </head>
 <body>
     <h1>🔧 Yeastar Proxy Service</h1>
     <p>This is a simple proxy service that can help bypass CORS issues.</p>
+    
+    <div class="proxy-selector">
+        <label for="proxy-service">Select CORS Proxy Service:</label>
+        <select id="proxy-service">
+            <option value="https://api.allorigins.win/raw?url=">AllOrigins (Recommended)</option>
+            <option value="https://cors-anywhere.herokuapp.com/">CORS Anywhere</option>
+            <option value="https://thingproxy.freeboard.io/fetch/">ThingProxy</option>
+            <option value="https://cors.bridged.cc/">CORS Bridged</option>
+        </select>
+        <small>Try different services if one doesn't work</small>
+    </div>
     
     <div class="form-group">
         <label for="target-url">Target URL:</label>
@@ -61,6 +74,13 @@
             <li><strong>Method:</strong> POST</li>
             <li><strong>Body:</strong> <code>{"username": "your_client_id", "password": "your_client_secret"}</code></li>
         </ul>
+        
+        <h3>Troubleshooting:</h3>
+        <ul>
+            <li>If one proxy service doesn't work, try another from the dropdown</li>
+            <li>Check the browser console for detailed error messages</li>
+            <li>Some proxy services have rate limits or may be temporarily down</li>
+        </ul>
     </div>
     
     <script>
@@ -68,6 +88,7 @@
             const targetUrl = document.getElementById('target-url').value.trim();
             const method = document.getElementById('request-method').value;
             const body = document.getElementById('request-body').value.trim();
+            const proxyService = document.getElementById('proxy-service').value;
             
             if (!targetUrl) {
                 showResult('Please enter a target URL.', 'error');
@@ -80,13 +101,8 @@
             resultDiv.className = 'result';
             
             try {
-                // Use a CORS proxy service to make the request
-                const corsProxy = 'https://cors-anywhere.herokuapp.com/';
-                const fullUrl = corsProxy + targetUrl;
-                
-                console.log('Making request to:', fullUrl);
-                
-                const options = {
+                let fullUrl;
+                let options = {
                     method: method,
                     headers: {
                         'Content-Type': 'application/json',
@@ -95,12 +111,30 @@
                     }
                 };
                 
-                if (body && method !== 'GET') {
-                    try {
-                        options.body = body;
-                    } catch (e) {
-                        options.body = body;
+                // Handle different proxy services
+                if (proxyService.includes('allorigins.win')) {
+                    // AllOrigins only supports GET requests
+                    if (method !== 'GET') {
+                        showResult(`
+                            ⚠️ <strong>Method Not Supported</strong><br><br>
+                            AllOrigins proxy only supports GET requests. Please select a different proxy service for POST requests.
+                        `, 'error');
+                        return;
                     }
+                    fullUrl = proxyService + encodeURIComponent(targetUrl);
+                } else if (proxyService.includes('cors-anywhere')) {
+                    fullUrl = proxyService + targetUrl;
+                } else if (proxyService.includes('thingproxy')) {
+                    fullUrl = proxyService + targetUrl;
+                } else if (proxyService.includes('cors.bridged')) {
+                    fullUrl = proxyService + targetUrl;
+                }
+                
+                console.log('Making request to:', fullUrl);
+                console.log('Request options:', options);
+                
+                if (body && method !== 'GET') {
+                    options.body = body;
                 }
                 
                 const response = await fetch(fullUrl, options);
@@ -120,6 +154,7 @@
                     showResult(`
                         ✅ <strong>Request Successful!</strong><br><br>
                         <strong>Status:</strong> ${response.status}<br>
+                        <strong>Proxy Service:</strong> ${proxyService.split('/')[2]}<br>
                         <strong>Response:</strong><br>
                         <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">${JSON.stringify(jsonData, null, 2)}</pre>
                     `, 'success');
@@ -127,6 +162,7 @@
                     showResult(`
                         ⚠️ <strong>Request Failed</strong><br><br>
                         <strong>Status:</strong> ${response.status}<br>
+                        <strong>Proxy Service:</strong> ${proxyService.split('/')[2]}<br>
                         <strong>Response:</strong><br>
                         <pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto;">${JSON.stringify(jsonData, null, 2)}</pre>
                     `, 'error');
@@ -136,12 +172,16 @@
                 console.error('Proxy request error:', error);
                 showResult(`
                     ❌ <strong>Request Error</strong><br><br>
-                    <strong>Error:</strong> ${error.message}<br><br>
+                    <strong>Error:</strong> ${error.message}<br>
+                    <strong>Proxy Service:</strong> ${proxyService.split('/')[2]}<br><br>
                     This usually means:<br>
-                    • The target URL is not accessible<br>
+                    • The proxy service is down or overloaded<br>
                     • There's a network issue<br>
-                    • The CORS proxy service is down<br><br>
-                    Check the console for more details.
+                    • The target URL is not accessible<br><br>
+                    <strong>Try:</strong><br>
+                    • Select a different proxy service from the dropdown<br>
+                    • Check the browser console for more details<br>
+                    • Wait a few minutes and try again
                 `, 'error');
             }
         }

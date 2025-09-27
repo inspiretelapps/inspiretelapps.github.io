@@ -68,13 +68,6 @@
                 </div>
             </div>
 
-            <!-- Active Calls -->
-            <div class="card">
-                <h2>Active Calls</h2>
-                <div id="active-call-loader">Loading...</div>
-                <div id="active-call-content" class="hidden"></div>
-            </div>
-
             <!-- Live Agent Status -->
             <div class="card">
                 <h2>Live Agent Status</h2>
@@ -321,10 +314,19 @@
 
             async function fetchAndRenderAgentStatus(queueId) {
                 setLoader('agent-status', true);
-                const result = await apiRequest(`queue/agent_status?queue_id=${queueId}`);
-                if (result && result.errcode === 0) {
-                    renderAgentStatus(result.data);
-                } else {
+                try {
+                    const result = await apiRequest(`queue/agent_status?queue_id=${queueId}`);
+                    console.log('Agent status result:', result);  // Log full response
+                    if (result && result.errcode === 0) {
+                        renderAgentStatus(result.data);
+                    } else {
+                        console.error('Agent fetch failed:', result ? result.errmsg : 'No result');
+                        alert(`Failed to load agents for queue ${queueId}: ${result ? result.errmsg : 'Unknown error'}. Check queue ID or API access.`);
+                        renderAgentStatus([]);
+                    }
+                } catch (error) {
+                    console.error('Agent fetch error:', error);
+                    alert('Error fetching agent status: ' + error.message);
                     renderAgentStatus([]);
                 }
                 setLoader('agent-status', false);
@@ -364,79 +366,6 @@
                 container.appendChild(table);
             }
 
-
-            // 0. Active Calls
-            async function fetchAndRenderActiveCalls() {
-                setLoader('active-call', true);
-                const result = await apiRequest('call/query');
-                if (result && result.errcode === 0) {
-                    renderActiveCalls(result.data);
-                } else {
-                    renderActiveCalls([]);
-                }
-                setLoader('active-call', false);
-            }
-
-            function renderActiveCalls(calls) {
-                const container = document.getElementById('active-call-content');
-                container.innerHTML = '';
-                if (!calls || calls.length === 0) {
-                    container.innerHTML = '<p>No active calls.</p>';
-                    return;
-                }
-
-                const table = document.createElement('table');
-                table.innerHTML = `
-                    <thead>
-                        <tr>
-                            <th>From</th>
-                            <th>To</th>
-                            <th>Duration</th>
-                            <th class="text-center">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    </tbody>
-                `;
-                const tbody = table.querySelector('tbody');
-                calls.forEach(call => {
-                    const row = `
-                        <tr>
-                            <td>${call.caller_number}</td>
-                            <td>${call.callee_number}</td>
-                            <td>${formatDuration(call.duration)}</td>
-                            <td class="text-center">
-                                <button class="btn btn-error" data-channel-id="${call.channel_id}">Hang Up</button>
-                            </td>
-                        </tr>
-                    `;
-                    tbody.innerHTML += row;
-                });
-                container.appendChild(table);
-
-                document.querySelectorAll('.btn-error').forEach(btn => {
-                    btn.addEventListener('click', handleHangup);
-                });
-            }
-
-            async function handleHangup(event) {
-                const channelId = event.target.dataset.channelId;
-                if (!channelId) {
-                    alert('Error: Channel ID not found.');
-                    return;
-                }
-                
-                const confirmed = confirm('Are you sure you want to hang up this call?');
-                if (confirmed) {
-                    const result = await apiRequest('call/hangup', 'POST', { channel_id: channelId });
-                    if (result && result.errcode === 0) {
-                        alert('Call hung up successfully.');
-                        fetchAndRenderActiveCalls(); // Refresh the list
-                    } else {
-                        alert('Failed to hang up call.');
-                    }
-                }
-            }
 
             // 0. Trunk Status
             // async function fetchAndRenderTrunkStatus() {
@@ -642,10 +571,13 @@
                     return;
                 }
 
-                const menuOptions = await apiRequest('system/get_menuoptions');
+                const menuOptions = await apiRequest('system/get_menuoptions?menu_type=all');  // Add ?menu_type=all for all destinations
                 if (!menuOptions || menuOptions.errcode !== 0) {
-                    alert('Failed to fetch destination options.');
-                    return;
+                    console.log('Menu options result:', menuOptions);  // Log
+                    alert(`Failed to load destination options: ${menuOptions ? menuOptions.errmsg : 'Unknown'}. Routes may not populate fully.`);
+                    // Fallback: Use empty object
+                    populateDestinationSelects({ extension: [], ivr: [], queue: [] });
+                    return;  // Or continue with empty
                 }
                 
                 populateDestinationSelects(menuOptions.data);
@@ -683,9 +615,15 @@
 
                 selects.forEach(select => {
                     select.innerHTML = '<option value="none:">Not Set</option>';
-                    options.extension.forEach(ext => select.innerHTML += `<option value="extension:${ext.id}">${ext.name} (Ext: ${ext.number})</option>`);
-                    options.ivr.forEach(ivr => select.innerHTML += `<option value="ivr:${ivr.id}">IVR: ${ivr.name}</option>`);
-                    options.queue.forEach(q => select.innerHTML += `<option value="queue:${q.id}">Queue: ${q.name}</option>`);
+                    if (options && options.extension) {
+                        options.extension.forEach(ext => select.innerHTML += `<option value="extension:${ext.id}">${ext.name} (Ext: ${ext.number})</option>`);
+                    }
+                    if (options && options.ivr) {
+                        options.ivr.forEach(ivr => select.innerHTML += `<option value="ivr:${ivr.id}">IVR: ${ivr.name}</option>`);
+                    }
+                    if (options && options.queue) {
+                        options.queue.forEach(q => select.innerHTML += `<option value="queue:${q.id}">Queue: ${q.name}</option>`);
+                    }
                 });
             }
 
@@ -903,7 +841,6 @@
                     if(extensionIds) {
                         Promise.all([
                             fetchAndPopulateQueues(),
-                            fetchAndRenderActiveCalls(),
                             fetchAndRenderStats(extensionIds),
                             fetchAndRenderInboundRoutes(),
                             fetchAndRenderRecentCalls(1)
@@ -913,7 +850,6 @@
                     if (extensionIds.length > 0 && accessToken) {
                         // Polling for live sections (every 10 seconds)
                         setInterval(() => {
-                            fetchAndRenderActiveCalls();
                             const selectedQueue = queueSelect.value;
                             if (selectedQueue) {
                                 fetchAndRenderAgentStatus(selectedQueue);

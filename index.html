@@ -548,25 +548,8 @@
                     console.error('Queues fetch error:', err);
                 }
 
-                try {
-                    // Fetch Ring Groups
-                    const rgResult = await apiRequest('ring_group/list?page_size=100');
-                    console.log('Ring Groups list result:', rgResult);
-                    if (rgResult && rgResult.errcode === 0) {
-                        menuOptions.ring_group = (rgResult.data || []).map(rg => ({
-                            id: rg.id,
-                            name: rg.name || 'Unnamed Ring Group'
-                        }));
-                        allFailed = false;
-                    } else {
-                        console.warn('Ring Groups list failed:', rgResult ? rgResult.errmsg : 'No result');
-                    }
-                } catch (err) {
-                    console.error('Ring Groups fetch error:', err);
-                }
-
                 if (allFailed) {
-                    alert('Unable to load destinations (extensions/IVRs/queues/ring groups)—using empty options. Check PBX config and API access.');
+                    alert('Unable to load destinations (extensions/IVRs/queues)—using empty options. Check PBX config and API access.');
                 }
 
                 console.log('Final menu options for routes:', menuOptions);
@@ -615,9 +598,6 @@
                     if (options && Array.isArray(options.queue)) {
                         options.queue.forEach(q => select.innerHTML += `<option value="queue:${q.id}">Queue: ${q.name}</option>`);
                     }
-                    if (options && Array.isArray(options.ring_group)) {
-                        options.ring_group.forEach(rg => select.innerHTML += `<option value="ring_group:${rg.id}">Ring Group: ${rg.name}</option>`);
-                    }
                 });
             }
 
@@ -626,7 +606,10 @@
                 const routeId = document.getElementById('edit-route-id').value;
                 const routingLogic = document.querySelector('input[name="routing-logic"]:checked').value;
                 
-                let payload = { id: parseInt(routeId) };
+                let payload = { 
+                    id: parseInt(routeId),
+                    name: document.getElementById('edit-route-modal-title').textContent.replace('Edit: ', '') // Add route name as required
+                };
 
                 if (routingLogic === 'simple') {
                     const [dest, destValue] = document.getElementById('simple-dest-select').value.split(':');
@@ -658,6 +641,8 @@
                         fetchAndRenderInboundRoutes();  // Refresh
                     } else if (result && result.errcode === 40002) {
                         alert(`Invalid parameters for update (40002)—${result.errmsg || 'Check selection'}. Payload: ${JSON.stringify(payload, null, 2)}`);
+                    } else if (!result) {
+                        alert('Update failed - no response from PBX. Check payload: ' + JSON.stringify(payload, null, 2));
                     } else {
                         alert(`Failed to update route. Error: ${result ? result.errmsg : 'Unknown'}`);
                     }

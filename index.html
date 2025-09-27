@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="style.css">
     
     <!-- PWA Manifest and Theme Color -->
-    <link rel="manifest" href="manifest.json">
+    <!-- <link rel="manifest" href="manifest.json"> -->
     <meta name="theme-color" content="#ffffff">
     <link rel="apple-touch-icon" href="https://placehold.co/192x192/3498db/FFFFFF?text=PBX">
 </head>
@@ -609,9 +609,9 @@
 
                 if (routingLogic === 'simple') {
                     const [dest, destValue] = document.getElementById('simple-dest-select').value.split(':');
-                    payload.time_condition = 'disabled';
-                    payload.def_dest = dest;
-                    payload.def_dest_value = destValue;
+                    payload.time_condition = 'none';  // Changed to 'none' per docs for no time condition
+                    payload.default_destination = dest;  // Fixed field name
+                    payload.default_destination_value = String(destValue);  // Ensure string
                 } else {
                     const [bhDest, bhValue] = document.getElementById('business-hours-dest-select').value.split(':');
                     const [obhDest, obhValue] = document.getElementById('outside-business-hours-dest-select').value.split(':');
@@ -619,20 +619,29 @@
 
                     payload.time_condition = 'global';
                     payload.business_hours_destination = bhDest;
-                    payload.business_hours_destination_value = bhValue;
+                    payload.business_hours_destination_value = String(bhValue);
                     payload.outside_business_hours_destination = obhDest;
-                    payload.outside_business_hours_destination_value = obhValue;
+                    payload.outside_business_hours_destination_value = String(obhValue);
                     payload.holidays_hours_destination = hDest;
-                    payload.holidays_hours_destination_value = hValue;
+                    payload.holidays_hours_destination_value = String(hValue);
                 }
 
-                const result = await apiRequest('inbound_route/update', 'POST', payload);
-                if (result && result.errcode === 0) {
-                    alert('Route updated successfully!');
-                    document.getElementById('edit-route-modal').close();
-                    fetchAndRenderInboundRoutes();
-                } else {
-                    alert(`Failed to update route. Error: ${result ? result.errmsg : 'Unknown'}`);
+                console.log('Route update payload:', payload);  // Log for debugging
+
+                try {
+                    const result = await apiRequest('inbound_route/update', 'POST', payload);
+                    if (result && result.errcode === 0) {
+                        alert('Route updated successfully!');
+                        document.getElementById('edit-route-modal').close();
+                        fetchAndRenderInboundRoutes();  // Refresh
+                    } else if (result && result.errcode === 40002) {
+                        alert(`Invalid parameters for update (40002)—check selection. Payload: ${JSON.stringify(payload, null, 2)}`);
+                    } else {
+                        alert(`Failed to update route. Error: ${result ? result.errmsg : 'Unknown'}`);
+                    }
+                } catch (error) {
+                    console.error('Update error:', error);
+                    alert('Update failed: ' + error.message);
                 }
             });
 

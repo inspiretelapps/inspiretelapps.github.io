@@ -1,14 +1,13 @@
 {
-  "version": 2,
   "functions": {
     "api/proxy.js": {
-      "maxDuration": 30
+      "maxDuration": 10
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/proxy/(.*)",
-      "dest": "/api/proxy.js"
+      "source": "/api/proxy/:path*",
+      "destination": "/api/proxy.js"
     }
   ]
 }

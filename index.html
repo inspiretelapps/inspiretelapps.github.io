@@ -71,6 +71,7 @@
             <!-- Recent Calls -->
             <div class="card">
                 <h2>Recent Calls</h2>
+                <button id="refresh-recent" class="btn btn-secondary" style="margin-bottom: 1rem;">Refresh</button>
                 <div id="recent-calls-loader">Loading...</div>
                 <div id="recent-calls-content" class="hidden">
                     <!-- Recent calls will be injected here -->
@@ -491,7 +492,7 @@
                     return;
                 }
 
-                let menuOptions = { extension: [], ivr: [], queue: [] };  // Fallback empty
+                let menuOptions = { extension: [], ivr: [], queue: [], ring_group: [] };  // Fallback empty
 
                 let allFailed = true;
 
@@ -502,7 +503,7 @@
                     if (extResult && extResult.errcode === 0) {
                         menuOptions.extension = (extResult.data || []).map(ext => ({
                             id: ext.id,
-                            name: ext.name || ext.display_name || 'Unnamed',
+                            name: ext.display_name || ext.username || ('Ext ' + ext.number),  // Fix unnamed
                             number: ext.number
                         }));
                         allFailed = false;
@@ -547,8 +548,25 @@
                     console.error('Queues fetch error:', err);
                 }
 
+                try {
+                    // Fetch Ring Groups
+                    const rgResult = await apiRequest('ring_group/list?page_size=100');
+                    console.log('Ring Groups list result:', rgResult);
+                    if (rgResult && rgResult.errcode === 0) {
+                        menuOptions.ring_group = (rgResult.data || []).map(rg => ({
+                            id: rg.id,
+                            name: rg.name || 'Unnamed Ring Group'
+                        }));
+                        allFailed = false;
+                    } else {
+                        console.warn('Ring Groups list failed:', rgResult ? rgResult.errmsg : 'No result');
+                    }
+                } catch (err) {
+                    console.error('Ring Groups fetch error:', err);
+                }
+
                 if (allFailed) {
-                    alert('Unable to load destinations (extensions/IVRs/queues)—using empty options. Check PBX config and API access.');
+                    alert('Unable to load destinations (extensions/IVRs/queues/ring groups)—using empty options. Check PBX config and API access.');
                 }
 
                 console.log('Final menu options for routes:', menuOptions);
@@ -597,6 +615,9 @@
                     if (options && Array.isArray(options.queue)) {
                         options.queue.forEach(q => select.innerHTML += `<option value="queue:${q.id}">Queue: ${q.name}</option>`);
                     }
+                    if (options && Array.isArray(options.ring_group)) {
+                        options.ring_group.forEach(rg => select.innerHTML += `<option value="ring_group:${rg.id}">Ring Group: ${rg.name}</option>`);
+                    }
                 });
             }
 
@@ -630,12 +651,13 @@
 
                 try {
                     const result = await apiRequest('inbound_route/update', 'POST', payload);
+                    console.log('Update result full:', result);  // Log full for errmsg
                     if (result && result.errcode === 0) {
                         alert('Route updated successfully!');
                         document.getElementById('edit-route-modal').close();
                         fetchAndRenderInboundRoutes();  // Refresh
                     } else if (result && result.errcode === 40002) {
-                        alert(`Invalid parameters for update (40002)—check selection. Payload: ${JSON.stringify(payload, null, 2)}`);
+                        alert(`Invalid parameters for update (40002)—${result.errmsg || 'Check selection'}. Payload: ${JSON.stringify(payload, null, 2)}`);
                     } else {
                         alert(`Failed to update route. Error: ${result ? result.errmsg : 'Unknown'}`);
                     }
@@ -831,7 +853,7 @@
                     if (extensionIds.length > 0 && accessToken) {
                         // Polling for live sections (every 10 seconds)
                         setInterval(() => {
-                            fetchAndRenderRecentCalls(1); // Polling for recent calls
+                            // fetchAndRenderRecentCalls(1); // Polling for recent calls
                         }, 10000);  // 10 seconds
                     }
                 }
@@ -851,6 +873,8 @@
                     alert('Please fill all fields before saving.');
                 }
             });
+
+            document.getElementById('refresh-recent').addEventListener('click', () => fetchAndRenderRecentCalls(currentCallsPage));
         });
     </script>
 </body>

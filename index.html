@@ -631,12 +631,12 @@
                     const [obhDest, obhValue] = obhSelect.split(':');
                     const [hDest, hValue] = hSelect.split(':');
 
-                    // Clear simple routing fields when enabling time conditions
-                    delete payload.def_dest;
-                    delete payload.def_dest_value;
+                    // Try keeping the original def_dest and adding time conditions
+                    payload.def_dest = 'disabled';  // Disable default routing
+                    payload.def_dest_value = '';
                     
-                    // Set time condition parameters
-                    payload.time_condition = 'global';
+                    // Set time condition parameters - try 'enabled' instead of 'global'
+                    payload.time_condition = 'enabled';
                     payload.business_hours_destination = bhDest || 'disabled';
                     payload.business_hours_destination_value = bhValue || '';
                     payload.outside_business_hours_destination = obhDest || 'disabled';

@@ -496,83 +496,62 @@
                 let allFailed = true;
 
                 try {
-                    // Fetch extensions with type= param
-                    const extResult = await apiRequest('system/get_menuoptions?type=extension');
-                    console.log('Ext result full:', extResult);  // Detailed log
+                    // Fetch extensions directly
+                    const extResult = await apiRequest('extension/list?page_size=100');
+                    console.log('Extensions list result:', extResult);
                     if (extResult && extResult.errcode === 0) {
-                        menuOptions.extension = extResult.data || [];
+                        menuOptions.extension = (extResult.data || []).map(ext => ({
+                            id: ext.id,
+                            name: ext.name || ext.display_name || 'Unnamed',
+                            number: ext.number
+                        }));
                         allFailed = false;
-                    } else if (extResult && extResult.errcode === 40002) {
-                        console.warn('Extensions 40002 - trying without params later');
                     } else {
-                        console.warn('Extensions fetch failed:', extResult ? extResult.errmsg : 'No result');
+                        console.warn('Extensions list failed:', extResult ? extResult.errmsg : 'No result');
                     }
                 } catch (err) {
-                    console.error('Extensions API error:', err);
+                    console.error('Extensions fetch error:', err);
                 }
 
                 try {
                     // Fetch IVRs
-                    const ivrResult = await apiRequest('system/get_menuoptions?type=ivr');
-                    console.log('IVR result full:', ivrResult);
+                    const ivrResult = await apiRequest('ivr/list?page_size=100');
+                    console.log('IVRs list result:', ivrResult);
                     if (ivrResult && ivrResult.errcode === 0) {
-                        menuOptions.ivr = ivrResult.data || [];
+                        menuOptions.ivr = (ivrResult.data || []).map(ivr => ({
+                            id: ivr.id,
+                            name: ivr.name || 'Unnamed IVR'
+                        }));
                         allFailed = false;
-                    } else if (ivrResult && ivrResult.errcode === 40002) {
-                        console.warn('IVRs 40002 - trying without params later');
                     } else {
-                        console.warn('IVRs fetch failed:', ivrResult ? ivrResult.errmsg : 'No result');
+                        console.warn('IVRs list failed:', ivrResult ? ivrResult.errmsg : 'No result');
                     }
                 } catch (err) {
-                    console.error('IVRs API error:', err);
+                    console.error('IVRs fetch error:', err);
                 }
 
                 try {
                     // Fetch Queues
-                    const queueResult = await apiRequest('system/get_menuoptions?type=queue');
-                    console.log('Queue result full:', queueResult);
+                    const queueResult = await apiRequest('queue/list?page_size=100');
+                    console.log('Queues list result:', queueResult);
                     if (queueResult && queueResult.errcode === 0) {
-                        menuOptions.queue = queueResult.data || [];
+                        menuOptions.queue = (queueResult.data || []).map(q => ({
+                            id: q.id,
+                            name: q.name || 'Unnamed Queue'
+                        }));
                         allFailed = false;
-                    } else if (queueResult && queueResult.errcode === 40002) {
-                        console.warn('Queues 40002 - trying without params later');
                     } else {
-                        console.warn('Queues fetch failed:', queueResult ? queueResult.errmsg : 'No result');
-                        alert(`Failed to load queues: ${queueResult ? queueResult.errmsg : 'Unknown error'}. Check PBX queue config.`);
+                        console.warn('Queues list failed:', queueResult ? queueResult.errmsg : 'No result');
                     }
                 } catch (err) {
-                    console.error('Queues API error:', err);
+                    console.error('Queues fetch error:', err);
                 }
 
-                // If all specific calls failed with 40002, try single call without params as fallback
                 if (allFailed) {
-                    try {
-                        const fallbackResult = await apiRequest('system/get_menuoptions');
-                        console.log('Fallback no-param result:', fallbackResult);
-                        if (fallbackResult && fallbackResult.errcode === 0) {
-                            // Assume it returns merged data; adjust based on structure (e.g., if data has extension/ivr/queue keys)
-                            if (fallbackResult.data) {
-                                menuOptions = {
-                                    extension: fallbackResult.data.extension || [],
-                                    ivr: fallbackResult.data.ivr || [],
-                                    queue: fallbackResult.data.queue || []
-                                };
-                            } else {
-                                // If flat list, filter by type (docs imply structured)
-                                menuOptions.extension = fallbackResult.data.filter(item => item.type === 'extension') || [];
-                                menuOptions.ivr = fallbackResult.data.filter(item => item.type === 'ivr') || [];
-                                menuOptions.queue = fallbackResult.data.filter(item => item.type === 'queue') || [];
-                            }
-                        } else {
-                            alert(`All destination fetches failed (40002 params invalid). Using empty options. Check PBX API version.`);
-                        }
-                    } catch (fallbackErr) {
-                        console.error('Fallback API error:', fallbackErr);
-                        alert('Fallback fetch failed: ' + fallbackErr.message + '. Modal will have limited options.');
-                    }
+                    alert('Unable to load destinations (extensions/IVRs/queues)—using empty options. Check PBX config and API access.');
                 }
 
-                console.log('Final merged menu options:', menuOptions);  // Debug log
+                console.log('Final menu options for routes:', menuOptions);
 
                 populateDestinationSelects(menuOptions);
 
@@ -780,34 +759,34 @@
             }
 
             // --- PWA Service Worker ---
-            function registerServiceWorker() {
-                if ('serviceWorker' in navigator) {
-                    const swContent = `
-                        const CACHE_NAME = 'yeastar-dashboard-cache-v2';
-                        const urlsToCache = ['./index.html', './style.css'];
-                        self.addEventListener('install', event => { event.waitUntil( caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)) ); });
-                        self.addEventListener('activate', event => { const cacheWhitelist = [CACHE_NAME]; event.waitUntil( caches.keys().then(cacheNames => Promise.all( cacheNames.map(cacheName => { if (cacheWhitelist.indexOf(cacheName) === -1) { return caches.delete(cacheName); } }) )) ); });
-                        self.addEventListener('fetch', event => { if (event.request.url.startsWith('http')) { event.respondWith( caches.open(CACHE_NAME).then(cache => cache.match(event.request).then(response => { const fetchPromise = fetch(event.request).then(networkResponse => { if (!event.request.url.includes('/openapi/v1.0/')) { cache.put(event.request, networkResponse.clone()); } return networkResponse; }); return response || fetchPromise; })) ); } });
-                    `;
-                    const blob = new Blob([swContent], {type: 'application/javascript'});
-                    const swUrl = URL.createObjectURL(blob);
-                    navigator.serviceWorker.register(swUrl).then(reg => console.log('SW reg success', reg)).catch(err => console.log('SW reg failed', err));
-                }
-            }
+            // function registerServiceWorker() {
+            //     if ('serviceWorker' in navigator) {
+            //         const swContent = `
+            //             const CACHE_NAME = 'yeastar-dashboard-cache-v2';
+            //             const urlsToCache = ['./index.html', './style.css'];
+            //             self.addEventListener('install', event => { event.waitUntil( caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)) ); });
+            //             self.addEventListener('activate', event => { const cacheWhitelist = [CACHE_NAME]; event.waitUntil( caches.keys().then(cacheNames => Promise.all( cacheNames.map(cacheName => { if (cacheWhitelist.indexOf(cacheName) === -1) { return caches.delete(cacheName); } }) )) ); });
+            //             self.addEventListener('fetch', event => { if (event.request.url.startsWith('http')) { event.respondWith( caches.open(CACHE_NAME).then(cache => cache.match(event.request).then(response => { const fetchPromise = fetch(event.request).then(networkResponse => { if (!event.request.url.includes('/openapi/v1.0/')) { cache.put(event.request, networkResponse.clone()); } return networkResponse; }); return response || fetchPromise; })) ); } });
+            //         `;
+            //         const blob = new Blob([swContent], {type: 'application/javascript'});
+            //         const swUrl = URL.createObjectURL(blob);
+            //         navigator.serviceWorker.register(swUrl).then(reg => console.log('SW reg success', reg)).catch(err => console.log('SW reg failed', err));
+            //     }
+            // }
 
-            function setupManifest() {
-                 const manifest = {
-                    "name": "Yeastar PBX Dashboard", "short_name": "PBX Dash", "start_url": ".", "display": "standalone", "background_color": "#ffffff", "theme_color": "#ffffff",
-                    "icons": [ { "src": "https://placehold.co/192x192/3498db/FFFFFF?text=PBX", "sizes": "192x192", "type": "image/png" }, { "src": "https://placehold.co/512x512/3498db/FFFFFF?text=PBX", "sizes": "512x512", "type": "image/png" } ]
-                };
-                const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
-                const manifestURL = URL.createObjectURL(blob);
-                document.querySelector('link[rel="manifest"]').setAttribute('href', manifestURL);
-            }
+            // function setupManifest() {
+            //      const manifest = {
+            //         "name": "Yeastar PBX Dashboard", "short_name": "PBX Dash", "start_url": ".", "display": "standalone", "background_color": "#ffffff", "theme_color": "#ffffff",
+            //         "icons": [ { "src": "https://placehold.co/192x192/3498db/FFFFFF?text=PBX", "sizes": "192x192", "type": "image/png" }, { "src": "https://placehold.co/512x512/3498db/FFFFFF?text=PBX", "sizes": "512x512", "type": "image/png" } ]
+            //     };
+            //     const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+            //     const manifestURL = URL.createObjectURL(blob);
+            //     document.querySelector('link[rel="manifest"]').setAttribute('href', manifestURL);
+            // }
 
             // --- INITIALIZATION ---
-            setupManifest();
-            registerServiceWorker();
+            // setupManifest();
+            // registerServiceWorker();
 
             // --- EVENT LISTENERS ---
             connectBtn.addEventListener('click', async () => {

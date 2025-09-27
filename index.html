@@ -618,9 +618,9 @@
 
                 if (routingLogic === 'simple') {
                     const [dest, destValue] = document.getElementById('simple-dest-select').value.split(':');
-                    payload.time_condition = 'disabled';  // Revert to 'disabled'
-                    payload.def_dest = dest;  // Abbreviated
-                    payload.def_dest_value = String(destValue);  // String
+                    payload.time_condition = 'none';
+                    payload.def_dest = dest;
+                    payload.def_dest_value = String(destValue || '');
                 } else {
                     const [bhDest, bhValue] = document.getElementById('business-hours-dest-select').value.split(':');
                     const [obhDest, obhValue] = document.getElementById('outside-business-hours-dest-select').value.split(':');

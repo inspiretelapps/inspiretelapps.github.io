@@ -625,12 +625,13 @@
                     const [obhDest, obhValue] = document.getElementById('outside-business-hours-dest-select').value.split(':');
                     const [hDest, hValue] = document.getElementById('holidays-dest-select').value.split(':');
 
-                    payload.business_hours_dest = bhDest;
-                    payload.business_hours_dest_value = String(bhValue || '');
-                    payload.outside_business_hours_dest = obhDest;
-                    payload.outside_business_hours_dest_value = String(obhValue || '');
-                    payload.holidays_hours_dest = hDest;
-                    payload.holidays_hours_dest_value = String(hValue || '');
+                    payload.time_condition = 'global';
+                    payload.business_hours_destination = bhDest;
+                    payload.business_hours_destination_value = String(bhValue || '');
+                    payload.outside_business_hours_destination = obhDest;
+                    payload.outside_business_hours_destination_value = String(obhValue || '');
+                    payload.holidays_hours_destination = hDest;
+                    payload.holidays_hours_destination_value = String(hValue || '');
                 }
 
                 console.log('Route update payload:', payload);  // Log for debugging

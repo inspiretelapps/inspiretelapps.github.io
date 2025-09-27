@@ -492,6 +492,7 @@
                 document.getElementById('edit-route-id').value = routeId;
 
                 const routeDetails = await apiRequest(`inbound_route/get?id=${routeId}`);
+                console.log('Route details from API:', JSON.stringify(routeDetails, null, 2));
                 if (!routeDetails || routeDetails.errcode !== 0) {
                     alert('Failed to fetch route details.');
                     return;

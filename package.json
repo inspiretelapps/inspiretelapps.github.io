@@ -1,0 +1,16 @@
+{
+  "name": "yeastar-proxy",
+  "version": "1.0.0",
+  "description": "Proxy service for Yeastar PBX API",
+  "main": "api/proxy.js",
+  "type": "module",
+  "scripts": {
+    "start": "node api/proxy.js",
+    "dev": "vercel dev"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
+

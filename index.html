@@ -232,7 +232,14 @@
                 try {
                     const response = await fetch(finalUrl, options);
                     const responseText = await response.text();
-                    const responseData = JSON.parse(responseText);
+                    let responseData;
+                    try {
+                        responseData = JSON.parse(responseText);
+                    } catch (e) {
+                        console.error('apiRequest parse error for ' + endpoint + ':', responseText.substring(0, 200));
+                        alert('Proxy returned non-JSON (check setup). Raw preview: ' + responseText.substring(0, 200));
+                        return null;
+                    }
                     
                     if (responseData.errcode === 10004 && !isRetry) { // Token expired
                         console.log("Token expired, refreshing...");
@@ -275,17 +282,23 @@
                     });
                     
                     const responseText = await response.text();
-                    const data = JSON.parse(responseText);
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (e) {
+                        console.error('Auth parse error:', responseText.substring(0, 200));
+                        throw new Error('Proxy/PBX returned invalid response (not JSON). Raw: ' + responseText.substring(0, 200) + '. Test proxy separately.');
+                    }
 
                     if (data.errcode === 0) {
                         sessionStorage.setItem('yeastar_accessToken', data.access_token);
                         return data.access_token;
                     } else {
-                        throw new Error(`Error ${data.errcode}: ${data.errmsg}`);
+                        throw new Error(`Auth failed: Error ${data.errcode}: ${data.errmsg || 'Unknown'}. Check creds/host.`);
                     }
                 } catch (error) {
                     console.error('Error getting access token:', error);
-                    alert(`Failed to get access token: ${error.message}. Please check your Proxy URL, credentials, and PBX Host URL.`);
+                    alert(`Failed to get access token: ${error.message}. Please check Proxy URL (${proxyUrl}), credentials, and PBX Host URL (${pbxHost}). Use test-proxy.html for details.`);
                     return null;
                 }
             }

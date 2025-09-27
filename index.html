@@ -214,13 +214,18 @@
                 try {
                     const response = await fetch(finalUrl, options);
                     const responseText = await response.text();
+                    if (endpoint.includes('update')) {
+                        console.log('Raw update response for ' + endpoint + ':', responseText.substring(0, 500));
+                    }
                     let responseData;
                     try {
                         responseData = JSON.parse(responseText);
                     } catch (e) {
-                        console.error('apiRequest parse error for ' + endpoint + ':', responseText.substring(0, 200));
-                        alert('Proxy returned non-JSON (check setup). Raw preview: ' + responseText.substring(0, 200));
-                        return null;
+                        console.error('Parse error for ' + endpoint + ':', e, 'Raw:', responseText.substring(0, 200));
+                        throw new Error('PBX returned non-JSON for ' + endpoint + '. Raw: ' + responseText.substring(0, 200));
+                    }
+                    if (!responseData) {
+                        throw new Error('PBX returned empty data for ' + endpoint);
                     }
                     
                     if (responseData.errcode === 10004 && !isRetry) { // Token expired
@@ -613,21 +618,21 @@
 
                 if (routingLogic === 'simple') {
                     const [dest, destValue] = document.getElementById('simple-dest-select').value.split(':');
-                    payload.time_condition = 'none';  // Changed to 'none' per docs for no time condition
-                    payload.default_destination = dest;  // Fixed field name
-                    payload.default_destination_value = String(destValue);  // Ensure string
+                    payload.time_condition = 'disabled';  // Revert to 'disabled'
+                    payload.def_dest = dest;  // Abbreviated
+                    payload.def_dest_value = String(destValue);  // String
                 } else {
                     const [bhDest, bhValue] = document.getElementById('business-hours-dest-select').value.split(':');
                     const [obhDest, obhValue] = document.getElementById('outside-business-hours-dest-select').value.split(':');
                     const [hDest, hValue] = document.getElementById('holidays-dest-select').value.split(':');
 
                     payload.time_condition = 'global';
-                    payload.business_hours_destination = bhDest;
-                    payload.business_hours_destination_value = String(bhValue);
-                    payload.outside_business_hours_destination = obhDest;
-                    payload.outside_business_hours_destination_value = String(obhValue);
-                    payload.holidays_hours_destination = hDest;
-                    payload.holidays_hours_destination_value = String(hValue);
+                    payload.business_hours_dest = bhDest;  // Abbreviated
+                    payload.business_hours_dest_value = String(bhValue);
+                    payload.outside_business_hours_dest = obhDest;
+                    payload.outside_business_hours_dest_value = String(obhValue);
+                    payload.holidays_hours_dest = hDest;
+                    payload.holidays_hours_dest_value = String(hValue);
                 }
 
                 console.log('Route update payload:', payload);  // Log for debugging
@@ -640,15 +645,15 @@
                         document.getElementById('edit-route-modal').close();
                         fetchAndRenderInboundRoutes();  // Refresh
                     } else if (result && result.errcode === 40002) {
-                        alert(`Invalid parameters for update (40002)—${result.errmsg || 'Check selection'}. Payload: ${JSON.stringify(payload, null, 2)}`);
+                        alert(`Parameter error (40002): ${result.errmsg || 'Invalid payload'}. Check: ${JSON.stringify(payload, null, 2)}`);
                     } else if (!result) {
-                        alert('Update failed - no response from PBX. Check payload: ' + JSON.stringify(payload, null, 2));
+                        alert('Update failed - empty response. Raw payload sent: ' + JSON.stringify(payload, null, 2));
                     } else {
                         alert(`Failed to update route. Error: ${result ? result.errmsg : 'Unknown'}`);
                     }
                 } catch (error) {
                     console.error('Update error:', error);
-                    alert('Update failed: ' + error.message);
+                    alert('Update failed: ' + error.message + '. Try different selection.');
                 }
             });
 

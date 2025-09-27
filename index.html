@@ -68,17 +68,6 @@
                 </div>
             </div>
 
-            <!-- Live Agent Status -->
-            <div class="card">
-                <h2>Live Agent Status</h2>
-                <div class="form-group">
-                    <label for="queue-select">Select Queue</label>
-                    <select id="queue-select" class="input"></select>
-                </div>
-                <div id="agent-status-loader">Loading...</div>
-                <div id="agent-status-content" class="hidden"></div>
-            </div>
-
             <!-- Recent Calls -->
             <div class="card">
                 <h2>Recent Calls</h2>
@@ -298,75 +287,6 @@
 
             // --- DATA FETCHING AND RENDERING ---
 
-            // 0. Live Agent Status
-            async function fetchAndPopulateQueues() {
-                const result = await apiRequest('queue/list');
-                if (result && result.errcode === 0 && result.data) {
-                    queueSelect.innerHTML = '<option disabled selected>Choose a queue</option>';
-                    result.data.forEach(queue => {
-                        const option = document.createElement('option');
-                        option.value = queue.id;
-                        option.textContent = `${queue.name} (${queue.number})`;
-                        queueSelect.appendChild(option);
-                    });
-                }
-            }
-
-            async function fetchAndRenderAgentStatus(queueId) {
-                setLoader('agent-status', true);
-                try {
-                    const result = await apiRequest(`queue/agent_status?queue_id=${queueId}`);
-                    console.log('Agent status result:', result);  // Log full response
-                    if (result && result.errcode === 0) {
-                        renderAgentStatus(result.data);
-                    } else {
-                        console.error('Agent fetch failed:', result ? result.errmsg : 'No result');
-                        alert(`Failed to load agents for queue ${queueId}: ${result ? result.errmsg : 'Unknown error'}. Check queue ID or API access.`);
-                        renderAgentStatus([]);
-                    }
-                } catch (error) {
-                    console.error('Agent fetch error:', error);
-                    alert('Error fetching agent status: ' + error.message);
-                    renderAgentStatus([]);
-                }
-                setLoader('agent-status', false);
-            }
-
-            function renderAgentStatus(agents) {
-                const container = document.getElementById('agent-status-content');
-                container.innerHTML = '';
-                if (!agents || agents.length === 0) {
-                    container.innerHTML = '<p>No agents found for this queue.</p>';
-                    return;
-                }
-
-                const table = document.createElement('table');
-                table.innerHTML = `
-                    <thead>
-                        <tr>
-                            <th>Agent</th>
-                            <th class="text-center">Login Status</th>
-                            <th class="text-center">Pause Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    </tbody>
-                `;
-                const tbody = table.querySelector('tbody');
-                agents.forEach(agent => {
-                    const row = `
-                        <tr>
-                            <td>${agent.name} (${agent.number})</td>
-                            <td class="text-center"><span class="badge ${agent.is_login ? 'badge-success' : 'badge-ghost'}">${agent.is_login ? 'Logged In' : 'Logged Out'}</span></td>
-                            <td class="text-center"><span class="badge ${agent.is_pause ? 'badge-warning' : 'badge-ghost'}">${agent.is_pause ? `Paused (${agent.pause_reason || 'N/A'})` : 'Not Paused'}</span></td>
-                        </tr>
-                    `;
-                    tbody.innerHTML += row;
-                });
-                container.appendChild(table);
-            }
-
-
             // 0. Trunk Status
             // async function fetchAndRenderTrunkStatus() {
             //     setLoader('trunk-status', true);
@@ -573,11 +493,17 @@
 
                 let menuOptions = { extension: [], ivr: [], queue: [] };  // Fallback empty
 
+                let allFailed = true;
+
                 try {
-                    // Fetch extensions
-                    const extResult = await apiRequest('system/get_menuoptions?menu_type=extension');
+                    // Fetch extensions with type= param
+                    const extResult = await apiRequest('system/get_menuoptions?type=extension');
+                    console.log('Ext result full:', extResult);  // Detailed log
                     if (extResult && extResult.errcode === 0) {
                         menuOptions.extension = extResult.data || [];
+                        allFailed = false;
+                    } else if (extResult && extResult.errcode === 40002) {
+                        console.warn('Extensions 40002 - trying without params later');
                     } else {
                         console.warn('Extensions fetch failed:', extResult ? extResult.errmsg : 'No result');
                     }
@@ -587,9 +513,13 @@
 
                 try {
                     // Fetch IVRs
-                    const ivrResult = await apiRequest('system/get_menuoptions?menu_type=ivr');
+                    const ivrResult = await apiRequest('system/get_menuoptions?type=ivr');
+                    console.log('IVR result full:', ivrResult);
                     if (ivrResult && ivrResult.errcode === 0) {
                         menuOptions.ivr = ivrResult.data || [];
+                        allFailed = false;
+                    } else if (ivrResult && ivrResult.errcode === 40002) {
+                        console.warn('IVRs 40002 - trying without params later');
                     } else {
                         console.warn('IVRs fetch failed:', ivrResult ? ivrResult.errmsg : 'No result');
                     }
@@ -599,18 +529,50 @@
 
                 try {
                     // Fetch Queues
-                    const queueResult = await apiRequest('system/get_menuoptions?menu_type=queue');
+                    const queueResult = await apiRequest('system/get_menuoptions?type=queue');
+                    console.log('Queue result full:', queueResult);
                     if (queueResult && queueResult.errcode === 0) {
                         menuOptions.queue = queueResult.data || [];
+                        allFailed = false;
+                    } else if (queueResult && queueResult.errcode === 40002) {
+                        console.warn('Queues 40002 - trying without params later');
                     } else {
                         console.warn('Queues fetch failed:', queueResult ? queueResult.errmsg : 'No result');
-                        alert(`Failed to load queues: ${queueResult ? queueResult.errmsg : 'Unknown'}. Check PBX queue config.`);
+                        alert(`Failed to load queues: ${queueResult ? queueResult.errmsg : 'Unknown error'}. Check PBX queue config.`);
                     }
                 } catch (err) {
                     console.error('Queues API error:', err);
                 }
 
-                console.log('Merged menu options:', menuOptions);  // Debug log
+                // If all specific calls failed with 40002, try single call without params as fallback
+                if (allFailed) {
+                    try {
+                        const fallbackResult = await apiRequest('system/get_menuoptions');
+                        console.log('Fallback no-param result:', fallbackResult);
+                        if (fallbackResult && fallbackResult.errcode === 0) {
+                            // Assume it returns merged data; adjust based on structure (e.g., if data has extension/ivr/queue keys)
+                            if (fallbackResult.data) {
+                                menuOptions = {
+                                    extension: fallbackResult.data.extension || [],
+                                    ivr: fallbackResult.data.ivr || [],
+                                    queue: fallbackResult.data.queue || []
+                                };
+                            } else {
+                                // If flat list, filter by type (docs imply structured)
+                                menuOptions.extension = fallbackResult.data.filter(item => item.type === 'extension') || [];
+                                menuOptions.ivr = fallbackResult.data.filter(item => item.type === 'ivr') || [];
+                                menuOptions.queue = fallbackResult.data.filter(item => item.type === 'queue') || [];
+                            }
+                        } else {
+                            alert(`All destination fetches failed (40002 params invalid). Using empty options. Check PBX API version.`);
+                        }
+                    } catch (fallbackErr) {
+                        console.error('Fallback API error:', fallbackErr);
+                        alert('Fallback fetch failed: ' + fallbackErr.message + '. Modal will have limited options.');
+                    }
+                }
+
+                console.log('Final merged menu options:', menuOptions);  // Debug log
 
                 populateDestinationSelects(menuOptions);
 
@@ -647,13 +609,13 @@
 
                 selects.forEach(select => {
                     select.innerHTML = '<option value="none:">Not Set</option>';
-                    if (options && options.extension) {
+                    if (options && Array.isArray(options.extension)) {
                         options.extension.forEach(ext => select.innerHTML += `<option value="extension:${ext.id}">${ext.name} (Ext: ${ext.number})</option>`);
                     }
-                    if (options && options.ivr) {
+                    if (options && Array.isArray(options.ivr)) {
                         options.ivr.forEach(ivr => select.innerHTML += `<option value="ivr:${ivr.id}">IVR: ${ivr.name}</option>`);
                     }
-                    if (options && options.queue) {
+                    if (options && Array.isArray(options.queue)) {
                         options.queue.forEach(q => select.innerHTML += `<option value="queue:${q.id}">Queue: ${q.name}</option>`);
                     }
                 });
@@ -872,7 +834,6 @@
                     
                     if(extensionIds) {
                         Promise.all([
-                            fetchAndPopulateQueues(),
                             fetchAndRenderStats(extensionIds),
                             fetchAndRenderInboundRoutes(),
                             fetchAndRenderRecentCalls(1)
@@ -882,19 +843,9 @@
                     if (extensionIds.length > 0 && accessToken) {
                         // Polling for live sections (every 10 seconds)
                         setInterval(() => {
-                            const selectedQueue = queueSelect.value;
-                            if (selectedQueue) {
-                                fetchAndRenderAgentStatus(selectedQueue);
-                            }
+                            fetchAndRenderRecentCalls(1); // Polling for recent calls
                         }, 10000);  // 10 seconds
                     }
-                }
-            });
-
-            queueSelect.addEventListener('change', (event) => {
-                const queueId = event.target.value;
-                if (queueId) {
-                    fetchAndRenderAgentStatus(queueId);
                 }
             });
             

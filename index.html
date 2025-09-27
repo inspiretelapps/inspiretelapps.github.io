@@ -630,7 +630,9 @@
                     const [obhDest, obhValue] = obhSelect.split(':');
                     const [hDest, hValue] = hSelect.split(':');
 
-                    payload.time_condition = 'global';
+                    // Try different parameter combinations based on API patterns
+                    payload.time_condition = 'enabled';  // Try 'enabled' instead of 'global'
+                    payload.enable_time_condition = true;  // Add enable flag
                     payload.business_hours_destination = bhDest || '';
                     payload.business_hours_destination_value = bhValue || '';
                     payload.outside_business_hours_destination = obhDest || '';

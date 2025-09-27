@@ -49,30 +49,6 @@
         </div>
 
         <div id="dashboard-content" class="hidden">
-            <!-- Live Monitoring Section -->
-            <div id="live-monitoring-section" class="card">
-                <h2>Live Monitoring</h2>
-                <div id="trunk-status-panel">
-                    <h3>Trunk Status</h3>
-                    <div id="trunk-status-loader">Loading...</div>
-                    <div id="trunk-status-content" class="hidden"></div>
-                </div>
-                <div id="active-call-view" style="margin-top: 1.5rem;">
-                    <h3>Active Calls</h3>
-                    <div id="active-call-loader">Loading...</div>
-                    <div id="active-call-content" class="hidden"></div>
-                </div>
-                <div id="live-agent-status" style="margin-top: 1.5rem;">
-                    <h3>Live Agent Status</h3>
-                    <div class="form-group">
-                        <label for="queue-select">Select Queue</label>
-                        <select id="queue-select" class="input"></select>
-                    </div>
-                    <div id="agent-status-loader">Loading...</div>
-                    <div id="agent-status-content" class="hidden"></div>
-                </div>
-            </div>
-
             <!-- Today's Stats -->
             <div class="card">
                 <h2>Today's Stats</h2>
@@ -92,12 +68,35 @@
                 </div>
             </div>
 
+            <!-- Active Calls -->
+            <div class="card">
+                <h2>Active Calls</h2>
+                <div id="active-call-loader">Loading...</div>
+                <div id="active-call-content" class="hidden"></div>
+            </div>
+
+            <!-- Live Agent Status -->
+            <div class="card">
+                <h2>Live Agent Status</h2>
+                <div class="form-group">
+                    <label for="queue-select">Select Queue</label>
+                    <select id="queue-select" class="input"></select>
+                </div>
+                <div id="agent-status-loader">Loading...</div>
+                <div id="agent-status-content" class="hidden"></div>
+            </div>
+
             <!-- Recent Calls -->
             <div class="card">
                 <h2>Recent Calls</h2>
                 <div id="recent-calls-loader">Loading...</div>
                 <div id="recent-calls-content" class="hidden">
                     <!-- Recent calls will be injected here -->
+                </div>
+                <div id="recent-calls-pagination" class="hidden" style="display: flex; justify-content: center; gap: 1rem; margin-top: 1rem;">
+                    <button id="prev-calls" class="btn" disabled>Previous</button>
+                    <span id="page-info">Page 1</span>
+                    <button id="next-calls" class="btn">Next</button>
                 </div>
             </div>
 
@@ -440,50 +439,50 @@
             }
 
             // 0. Trunk Status
-            async function fetchAndRenderTrunkStatus() {
-                setLoader('trunk-status', true);
-                const result = await apiRequest('trunk/list');
-                if (result && result.errcode === 0) {
-                    renderTrunkStatus(result.data);
-                } else {
-                    renderTrunkStatus([]);
-                }
-                setLoader('trunk-status', false);
-            }
+            // async function fetchAndRenderTrunkStatus() {
+            //     setLoader('trunk-status', true);
+            //     const result = await apiRequest('trunk/list');
+            //     if (result && result.errcode === 0) {
+            //         renderTrunkStatus(result.data);
+            //     } else {
+            //         renderTrunkStatus([]);
+            //     }
+            //     setLoader('trunk-status', false);
+            // }
 
-            function renderTrunkStatus(trunks) {
-                const container = document.getElementById('trunk-status-content');
-                container.innerHTML = '';
-                if (!trunks || trunks.length === 0) {
-                    container.innerHTML = '<p>No trunks found.</p>';
-                    return;
-                }
+            // function renderTrunkStatus(trunks) {
+            //     const container = document.getElementById('trunk-status-content');
+            //     container.innerHTML = '';
+            //     if (!trunks || trunks.length === 0) {
+            //         container.innerHTML = '<p>No trunks found.</p>';
+            //         return;
+            //     }
 
-                const table = document.createElement('table');
-                table.innerHTML = `
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th class="text-center">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    </tbody>
-                `;
-                const tbody = table.querySelector('tbody');
-                trunks.forEach(trunk => {
-                    const row = `
-                        <tr>
-                            <td>${trunk.name}</td>
-                            <td>${trunk.type}</td>
-                            <td class="text-center"><span class="badge ${getTrunkStatusBadge(trunk.status)}">${formatTrunkStatus(trunk.status)}</span></td>
-                        </tr>
-                    `;
-                    tbody.innerHTML += row;
-                });
-                container.appendChild(table);
-            }
+            //     const table = document.createElement('table');
+            //     table.innerHTML = `
+            //         <thead>
+            //             <tr>
+            //                 <th>Name</th>
+            //                 <th>Type</th>
+            //                 <th class="text-center">Status</th>
+            //             </tr>
+            //         </thead>
+            //         <tbody>
+            //         </tbody>
+            //     `;
+            //     const tbody = table.querySelector('tbody');
+            //     trunks.forEach(trunk => {
+            //         const row = `
+            //             <tr>
+            //                 <td>${trunk.name}</td>
+            //                 <td>${trunk.type}</td>
+            //                 <td class="text-center"><span class="badge ${getTrunkStatusBadge(trunk.status)}">${formatTrunkStatus(trunk.status)}</span></td>
+            //             </tr>
+            //         `;
+            //         tbody.innerHTML += row;
+            //     });
+            //     container.appendChild(table);
+            // }
 
 
             async function fetchAllExtensions() {
@@ -740,18 +739,23 @@
 
 
             // 4. Recent Calls
-            async function fetchAndRenderRecentCalls() {
+            let currentCallsPage = 1;
+            async function fetchAndRenderRecentCalls(page = 1) {
+                currentCallsPage = page;
                 setLoader('recent-calls', true);
-                const endpoint = `cdr/list?page_size=10&sort_by=time&order_by=desc`;
+                const endpoint = `cdr/list?page_size=3&sort_by=time&order_by=desc&page=${page}`;
                 const result = await apiRequest(endpoint);
 
                 if (result && result.errcode === 0) {
-                    renderRecentCalls(result.data);
+                    renderRecentCalls(result.data, page);
+                } else {
+                    renderRecentCalls([], page);
                 }
                 setLoader('recent-calls', false);
+                updatePaginationButtons(result);
             }
 
-            function renderRecentCalls(calls) {
+            function renderRecentCalls(calls, page) {
                 const container = document.getElementById('recent-calls-content');
                 container.innerHTML = '';
                 if (calls.length === 0) {
@@ -777,8 +781,25 @@
                     `;
                     container.appendChild(callElement);
                 });
+                document.getElementById('page-info').textContent = `Page ${page}`;
             }
             
+            function updatePaginationButtons(result) {
+                const prevBtn = document.getElementById('prev-calls');
+                const nextBtn = document.getElementById('next-calls');
+                const pageInfo = document.getElementById('page-info');
+                prevBtn.disabled = currentCallsPage <= 1;
+                nextBtn.disabled = !result || result.data.length < 3;  // Assume no more if < page_size
+                // Note: For full pagination, we'd need total count from API; this is simple heuristic
+            }
+
+            document.getElementById('prev-calls').addEventListener('click', () => {
+                if (currentCallsPage > 1) fetchAndRenderRecentCalls(currentCallsPage - 1);
+            });
+            document.getElementById('next-calls').addEventListener('click', () => {
+                fetchAndRenderRecentCalls(currentCallsPage + 1);
+            });
+
             // --- UTILITY FUNCTIONS ---
             function formatTrunkStatus(status) {
                 const statusMap = { 0: 'Idle', 1: 'Busy', 2: 'Ringing', 3: 'Dialing', 4: 'Unavailable', 5: 'Registering', 6: 'Registered', 7: 'Unregistered', 8: 'Failed', 9: 'Authenticating', 10: 'Connecting' };
@@ -883,11 +904,21 @@
                         Promise.all([
                             fetchAndPopulateQueues(),
                             fetchAndRenderActiveCalls(),
-                            fetchAndRenderTrunkStatus(),
                             fetchAndRenderStats(extensionIds),
                             fetchAndRenderInboundRoutes(),
-                            fetchAndRenderRecentCalls()
+                            fetchAndRenderRecentCalls(1)
                         ]);
+                    }
+
+                    if (extensionIds.length > 0 && accessToken) {
+                        // Polling for live sections (every 10 seconds)
+                        setInterval(() => {
+                            fetchAndRenderActiveCalls();
+                            const selectedQueue = queueSelect.value;
+                            if (selectedQueue) {
+                                fetchAndRenderAgentStatus(selectedQueue);
+                            }
+                        }, 10000);  // 10 seconds
                     }
                 }
             });

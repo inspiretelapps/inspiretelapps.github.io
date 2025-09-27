@@ -571,16 +571,48 @@
                     return;
                 }
 
-                const menuOptions = await apiRequest('system/get_menuoptions?menu_type=all');  // Add ?menu_type=all for all destinations
-                if (!menuOptions || menuOptions.errcode !== 0) {
-                    console.log('Menu options result:', menuOptions);  // Log
-                    alert(`Failed to load destination options: ${menuOptions ? menuOptions.errmsg : 'Unknown'}. Routes may not populate fully.`);
-                    // Fallback: Use empty object
-                    populateDestinationSelects({ extension: [], ivr: [], queue: [] });
-                    return;  // Or continue with empty
+                let menuOptions = { extension: [], ivr: [], queue: [] };  // Fallback empty
+
+                try {
+                    // Fetch extensions
+                    const extResult = await apiRequest('system/get_menuoptions?menu_type=extension');
+                    if (extResult && extResult.errcode === 0) {
+                        menuOptions.extension = extResult.data || [];
+                    } else {
+                        console.warn('Extensions fetch failed:', extResult ? extResult.errmsg : 'No result');
+                    }
+                } catch (err) {
+                    console.error('Extensions API error:', err);
                 }
-                
-                populateDestinationSelects(menuOptions.data);
+
+                try {
+                    // Fetch IVRs
+                    const ivrResult = await apiRequest('system/get_menuoptions?menu_type=ivr');
+                    if (ivrResult && ivrResult.errcode === 0) {
+                        menuOptions.ivr = ivrResult.data || [];
+                    } else {
+                        console.warn('IVRs fetch failed:', ivrResult ? ivrResult.errmsg : 'No result');
+                    }
+                } catch (err) {
+                    console.error('IVRs API error:', err);
+                }
+
+                try {
+                    // Fetch Queues
+                    const queueResult = await apiRequest('system/get_menuoptions?menu_type=queue');
+                    if (queueResult && queueResult.errcode === 0) {
+                        menuOptions.queue = queueResult.data || [];
+                    } else {
+                        console.warn('Queues fetch failed:', queueResult ? queueResult.errmsg : 'No result');
+                        alert(`Failed to load queues: ${queueResult ? queueResult.errmsg : 'Unknown'}. Check PBX queue config.`);
+                    }
+                } catch (err) {
+                    console.error('Queues API error:', err);
+                }
+
+                console.log('Merged menu options:', menuOptions);  // Debug log
+
+                populateDestinationSelects(menuOptions);
 
                 const route = routeDetails.data;
                 document.getElementById('edit-route-modal-title').textContent = `Edit: ${route.name}`;

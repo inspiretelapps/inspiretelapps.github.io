@@ -621,20 +621,24 @@
                     payload.def_dest = dest;
                     payload.def_dest_value = String(destValue || '');
                 } else {
-                    const [bhDest, bhValue] = document.getElementById('business-hours-dest-select').value.split(':');
-                    const [obhDest, obhValue] = document.getElementById('outside-business-hours-dest-select').value.split(':');
-                    const [hDest, hValue] = document.getElementById('holidays-dest-select').value.split(':');
+                    const bhSelect = document.getElementById('business-hours-dest-select').value;
+                    const obhSelect = document.getElementById('outside-business-hours-dest-select').value;
+                    const hSelect = document.getElementById('holidays-dest-select').value;
+                    
+                    const [bhDest, bhValue] = bhSelect.split(':');
+                    const [obhDest, obhValue] = obhSelect.split(':');
+                    const [hDest, hValue] = hSelect.split(':');
 
                     payload.time_condition = 'global';
-                    payload.business_hours_destination = bhDest;
-                    payload.business_hours_destination_value = String(bhValue || '');
-                    payload.outside_business_hours_destination = obhDest;
-                    payload.outside_business_hours_destination_value = String(obhValue || '');
-                    payload.holidays_hours_destination = hDest;
-                    payload.holidays_hours_destination_value = String(hValue || '');
+                    payload.business_hours_destination = bhDest || '';
+                    payload.business_hours_destination_value = bhValue || '';
+                    payload.outside_business_hours_destination = obhDest || '';
+                    payload.outside_business_hours_destination_value = obhValue || '';
+                    payload.holidays_hours_destination = hDest || '';
+                    payload.holidays_hours_destination_value = hValue || '';
                 }
 
-                console.log('Route update payload:', payload);  // Log for debugging
+                console.log('Route update payload:', JSON.stringify(payload, null, 2));
 
                 try {
                     const result = await apiRequest('inbound_route/update', 'POST', payload);

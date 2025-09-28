@@ -83,6 +83,16 @@
                 </div>
             </div>
 
+            <!-- Quick Route Override -->
+            <div class="card">
+                <h2>Quick Route Override</h2>
+                <p style="font-size: 0.875rem; opacity: 0.7; margin-bottom: 1rem;">Quickly change where calls go with preset options</p>
+                <div id="quick-override-loader">Loading...</div>
+                <div id="quick-override-content" class="hidden">
+                    <!-- Quick override buttons will be injected here -->
+                </div>
+            </div>
+
             <!-- Advanced Inbound Route Management -->
             <div class="card">
                 <h2>Advanced Inbound Route Management</h2>
@@ -100,28 +110,8 @@
                 <form id="edit-route-form">
                     <input type="hidden" id="edit-route-id">
                     <div class="form-group">
-                        <label><input type="radio" name="routing-logic" value="simple" checked> Simple Destination</label>
-                        <label><input type="radio" name="routing-logic" value="time-based"> Time-Based Routing</label>
-                    </div>
-                    <div id="simple-destination-section">
-                        <div class="form-group">
-                            <label for="simple-dest-select">Destination</label>
-                            <select id="simple-dest-select" class="input"></select>
-                        </div>
-                    </div>
-                    <div id="time-based-section" class="hidden">
-                        <div class="form-group">
-                            <label for="business-hours-dest-select">Business Hours Destination</label>
-                            <select id="business-hours-dest-select" class="input"></select>
-                        </div>
-                        <div class="form-group">
-                            <label for="outside-business-hours-dest-select">Outside Business Hours Destination</label>
-                            <select id="outside-business-hours-dest-select" class="input"></select>
-                        </div>
-                         <div class="form-group">
-                            <label for="holidays-dest-select">Holidays Destination</label>
-                            <select id="holidays-dest-select" class="input"></select>
-                        </div>
+                        <label for="simple-dest-select">Destination</label>
+                        <select id="simple-dest-select" class="input"></select>
                     </div>
                     <div class="modal-action">
                         <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -610,75 +600,122 @@
             document.getElementById('edit-route-form').addEventListener('submit', async (event) => {
                 event.preventDefault();
                 const routeId = document.getElementById('edit-route-id').value;
-                const routingLogic = document.querySelector('input[name="routing-logic"]:checked').value;
-                console.log('Selected routing logic:', routingLogic);
-                
-                let payload = { 
+
+                const [dest, destValue] = document.getElementById('simple-dest-select').value.split(':');
+                const payload = {
                     id: parseInt(routeId),
-                    name: document.getElementById('edit-route-modal-title').textContent.replace('Edit: ', '') // Add route name as required
+                    name: document.getElementById('edit-route-modal-title').textContent.replace('Edit: ', ''),
+                    def_dest: dest,
+                    def_dest_value: String(destValue || '')
                 };
-
-                if (routingLogic === 'simple') {
-                    const [dest, destValue] = document.getElementById('simple-dest-select').value.split(':');
-                    payload.def_dest = dest;
-                    payload.def_dest_value = String(destValue || '');
-                } else {
-                    const bhSelect = document.getElementById('business-hours-dest-select').value;
-                    const obhSelect = document.getElementById('outside-business-hours-dest-select').value;
-                    const hSelect = document.getElementById('holidays-dest-select').value;
-                    
-                    const [bhDest, bhValue] = bhSelect.split(':');
-                    const [obhDest, obhValue] = obhSelect.split(':');
-                    const [hDest, hValue] = hSelect.split(':');
-
-                    // Remove def_dest fields completely for time-based routing
-                    delete payload.def_dest;
-                    delete payload.def_dest_value;
-                    
-                    // Set time condition parameters
-                    payload.time_condition = 'global';
-                    payload.business_hours_destination = bhDest || 'end_call';
-                    payload.business_hours_destination_value = bhValue || '';
-                    payload.outside_business_hours_destination = obhDest || 'end_call';
-                    payload.outside_business_hours_destination_value = obhValue || '';
-                    payload.holidays_hours_destination = hDest || 'end_call';
-                    payload.holidays_hours_destination_value = hValue || '';
-                }
-
-                console.log('Route update payload:', JSON.stringify(payload, null, 2));
 
                 try {
                     const result = await apiRequest('inbound_route/update', 'POST', payload);
-                    console.log('Update result full:', result);  // Log full for errmsg
                     if (result && result.errcode === 0) {
                         alert('Route updated successfully!');
                         document.getElementById('edit-route-modal').close();
-                        fetchAndRenderInboundRoutes();  // Refresh
-                    } else if (result && result.errcode === 40002) {
-                        alert(`Parameter error (40002): ${result.errmsg || 'Invalid payload'}. Check: ${JSON.stringify(payload, null, 2)}`);
-                    } else if (!result) {
-                        alert('Update failed - empty response. Raw payload sent: ' + JSON.stringify(payload, null, 2));
+                        fetchAndRenderInboundRoutes();
+                        fetchAndRenderQuickOverride(); // Refresh quick override too
                     } else {
                         alert(`Failed to update route. Error: ${result ? result.errmsg : 'Unknown'}`);
                     }
                 } catch (error) {
                     console.error('Update error:', error);
-                    alert('Update failed: ' + error.message + '. Try different selection.');
+                    alert('Update failed: ' + error.message);
                 }
             });
 
-            document.querySelectorAll('input[name="routing-logic"]').forEach(radio => {
-                radio.addEventListener('change', (event) => {
-                    if (event.target.value === 'simple') {
-                        document.getElementById('simple-destination-section').classList.remove('hidden');
-                        document.getElementById('time-based-section').classList.add('hidden');
-                    } else {
-                        document.getElementById('simple-destination-section').classList.add('hidden');
-                        document.getElementById('time-based-section').classList.remove('hidden');
-                    }
-                });
-            });
+            // Quick Override functionality
+            async function fetchAndRenderQuickOverride() {
+                setLoader('quick-override', true);
+                const result = await apiRequest('inbound_route/list?page_size=100');
+                if (result && result.errcode === 0) {
+                    renderQuickOverride(result.data);
+                } else {
+                    renderQuickOverride([]);
+                }
+                setLoader('quick-override', false);
+            }
 
+            function renderQuickOverride(routes) {
+                const container = document.getElementById('quick-override-content');
+                container.innerHTML = '';
+
+                if (!routes || routes.length === 0) {
+                    container.innerHTML = '<p>No inbound routes found.</p>';
+                    return;
+                }
+
+                routes.forEach(route => {
+                    const routeCard = document.createElement('div');
+                    routeCard.style.backgroundColor = 'var(--color-base-200)';
+                    routeCard.style.padding = '1rem';
+                    routeCard.style.borderRadius = 'var(--radius)';
+                    routeCard.style.marginBottom = '1rem';
+
+                    const currentDest = getCurrentDestinationName(route.def_dest, route.def_dest_value);
+
+                    routeCard.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <div>
+                                <h4>${route.name}</h4>
+                                <p style="font-size: 0.875rem; opacity: 0.7;">Currently: ${currentDest}</p>
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem;">
+                            <button class="btn btn-success btn-sm" onclick="quickChangeRoute(${route.id}, 'extension', getMainExtension())">Main Extension</button>
+                            <button class="btn btn-info btn-sm" onclick="quickChangeRoute(${route.id}, 'ivr', getMainIVR())">Main Menu</button>
+                            <button class="btn btn-warning btn-sm" onclick="quickChangeRoute(${route.id}, 'ext_vm', getMainExtension())">Voicemail</button>
+                            <button class="btn btn-error btn-sm" onclick="quickChangeRoute(${route.id}, 'end_call', '')">End Call</button>
+                        </div>
+                    `;
+                    container.appendChild(routeCard);
+                });
+            }
+
+            function getCurrentDestinationName(dest, destValue) {
+                switch(dest) {
+                    case 'extension': return `Extension ${destValue}`;
+                    case 'ivr': return `IVR ${destValue}`;
+                    case 'queue': return `Queue ${destValue}`;
+                    case 'ext_vm': return `Voicemail ${destValue}`;
+                    case 'end_call': return 'End Call';
+                    default: return `${dest} ${destValue}`;
+                }
+            }
+
+            function getMainExtension() {
+                // Return the first extension ID, or a default
+                const extensions = [...extensionMap.values()];
+                return extensions.length > 0 ? extensions[0] : '1';
+            }
+
+            function getMainIVR() {
+                // This would need to be populated from IVR list - for now return 1
+                return '1';
+            }
+
+            window.quickChangeRoute = async function(routeId, dest, destValue) {
+                const payload = {
+                    id: parseInt(routeId),
+                    def_dest: dest,
+                    def_dest_value: String(destValue)
+                };
+
+                try {
+                    const result = await apiRequest('inbound_route/update', 'POST', payload);
+                    if (result && result.errcode === 0) {
+                        alert('Route changed successfully!');
+                        fetchAndRenderQuickOverride();
+                        fetchAndRenderInboundRoutes();
+                    } else {
+                        alert(`Failed to change route. Error: ${result ? result.errmsg : 'Unknown'}`);
+                    }
+                } catch (error) {
+                    console.error('Quick change error:', error);
+                    alert('Failed to change route: ' + error.message);
+                }
+            };
 
             // 4. Recent Calls
             let currentCallsPage = 1;
@@ -845,6 +882,7 @@
                     if(extensionIds) {
                         Promise.all([
                             fetchAndRenderStats(extensionIds),
+                            fetchAndRenderQuickOverride(),
                             fetchAndRenderInboundRoutes(),
                             fetchAndRenderRecentCalls(1)
                         ]);

@@ -163,6 +163,9 @@
             let pbxHost = '';
             let proxyUrl = '';
             let extensionMap = new Map();
+            let extensionList = [];
+            let ivrList = [];
+            let queueList = [];
             
             // --- API HELPER ---
             async function apiRequest(endpoint, method = 'GET', body = null, isRetry = false) {
@@ -628,9 +631,28 @@
             // Quick Override functionality
             async function fetchAndRenderQuickOverride() {
                 setLoader('quick-override', true);
-                const result = await apiRequest('inbound_route/list?page_size=100');
-                if (result && result.errcode === 0) {
-                    renderQuickOverride(result.data);
+
+                // Fetch all necessary data
+                const [routeResult, extResult, ivrResult, queueResult] = await Promise.all([
+                    apiRequest('inbound_route/list?page_size=100'),
+                    apiRequest('extension/list?page_size=100'),
+                    apiRequest('ivr/list?page_size=100'),
+                    apiRequest('queue/list?page_size=100')
+                ]);
+
+                // Store data globally
+                if (extResult && extResult.errcode === 0) {
+                    extensionList = extResult.data || [];
+                }
+                if (ivrResult && ivrResult.errcode === 0) {
+                    ivrList = ivrResult.data || [];
+                }
+                if (queueResult && queueResult.errcode === 0) {
+                    queueList = queueResult.queue_list || queueResult.data || [];
+                }
+
+                if (routeResult && routeResult.errcode === 0) {
+                    renderQuickOverride(routeResult.data);
                 } else {
                     renderQuickOverride([]);
                 }
@@ -655,6 +677,12 @@
 
                     const currentDest = getCurrentDestinationName(route.def_dest, route.def_dest_value);
 
+                    const mainExt = extensionList.length > 0 ? extensionList[0] : null;
+                    const mainIVR = ivrList.length > 0 ? ivrList[0] : null;
+
+                    const mainExtLabel = mainExt ? `Ext ${mainExt.number}` : 'No Extensions';
+                    const mainIVRLabel = mainIVR ? `${mainIVR.name}` : 'No IVRs';
+
                     routeCard.innerHTML = `
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                             <div>
@@ -663,9 +691,9 @@
                             </div>
                         </div>
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem;">
-                            <button class="btn btn-success btn-sm" onclick="quickChangeRoute(${route.id}, 'extension', getMainExtension())">Main Extension</button>
-                            <button class="btn btn-info btn-sm" onclick="quickChangeRoute(${route.id}, 'ivr', getMainIVR())">Main Menu</button>
-                            <button class="btn btn-warning btn-sm" onclick="quickChangeRoute(${route.id}, 'ext_vm', getMainExtension())">Voicemail</button>
+                            <button class="btn btn-success btn-sm" onclick="quickChangeRoute(${route.id}, 'extension', '${mainExt ? mainExt.id : '1'}')" ${!mainExt ? 'disabled' : ''}>${mainExtLabel}</button>
+                            <button class="btn btn-info btn-sm" onclick="quickChangeRoute(${route.id}, 'ivr', '${mainIVR ? mainIVR.id : '1'}')" ${!mainIVR ? 'disabled' : ''}>${mainIVRLabel}</button>
+                            <button class="btn btn-warning btn-sm" onclick="quickChangeRoute(${route.id}, 'ext_vm', '${mainExt ? mainExt.id : '1'}')" ${!mainExt ? 'disabled' : ''}>VM ${mainExt ? mainExt.number : 'N/A'}</button>
                             <button class="btn btn-error btn-sm" onclick="quickChangeRoute(${route.id}, 'end_call', '')">End Call</button>
                         </div>
                     `;
@@ -675,24 +703,35 @@
 
             function getCurrentDestinationName(dest, destValue) {
                 switch(dest) {
-                    case 'extension': return `Extension ${destValue}`;
-                    case 'ivr': return `IVR ${destValue}`;
-                    case 'queue': return `Queue ${destValue}`;
-                    case 'ext_vm': return `Voicemail ${destValue}`;
+                    case 'extension': {
+                        const ext = extensionList.find(e => e.id == destValue);
+                        return ext ? `Extension ${ext.number} (${ext.display_name || ext.username || 'Unnamed'})` : `Extension ${destValue}`;
+                    }
+                    case 'ivr': {
+                        const ivr = ivrList.find(i => i.id == destValue);
+                        return ivr ? `IVR: ${ivr.name}` : `IVR ${destValue}`;
+                    }
+                    case 'queue': {
+                        const queue = queueList.find(q => q.id == destValue);
+                        return queue ? `Queue: ${queue.name}` : `Queue ${destValue}`;
+                    }
+                    case 'ext_vm': {
+                        const ext = extensionList.find(e => e.id == destValue);
+                        return ext ? `Voicemail ${ext.number}` : `Voicemail ${destValue}`;
+                    }
                     case 'end_call': return 'End Call';
                     default: return `${dest} ${destValue}`;
                 }
             }
 
             function getMainExtension() {
-                // Return the first extension ID, or a default
-                const extensions = [...extensionMap.values()];
-                return extensions.length > 0 ? extensions[0] : '1';
+                // Return the first extension ID from the list
+                return extensionList.length > 0 ? extensionList[0].id : '1';
             }
 
             function getMainIVR() {
-                // This would need to be populated from IVR list - for now return 1
-                return '1';
+                // Return the first IVR ID from the list
+                return ivrList.length > 0 ? ivrList[0].id : '1';
             }
 
             window.quickChangeRoute = async function(routeId, dest, destValue) {

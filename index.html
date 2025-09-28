@@ -669,6 +669,7 @@
                 }
 
                 routes.forEach(route => {
+                    console.log('Route data:', route); // Debug route data
                     const routeCard = document.createElement('div');
                     routeCard.style.backgroundColor = 'var(--color-base-200)';
                     routeCard.style.padding = '1rem';
@@ -676,6 +677,7 @@
                     routeCard.style.marginBottom = '1rem';
 
                     const currentDest = getCurrentDestinationName(route.def_dest, route.def_dest_value);
+                    console.log('Current dest for route', route.name, ':', currentDest, 'def_dest:', route.def_dest, 'def_dest_value:', route.def_dest_value);
 
                     const mainExt = extensionList.length > 0 ? extensionList[0] : null;
                     const mainIVR = ivrList.length > 0 ? ivrList[0] : null;
@@ -702,13 +704,19 @@
             }
 
             function getCurrentDestinationName(dest, destValue) {
+                console.log('getCurrentDestinationName called with:', { dest, destValue, extensionList: extensionList.length, ivrList: ivrList.length });
+
+                if (!dest) return 'No destination set';
+
                 switch(dest) {
                     case 'extension': {
                         const ext = extensionList.find(e => e.id == destValue);
+                        console.log('Extension lookup:', { destValue, found: ext });
                         return ext ? `Extension ${ext.number} (${ext.display_name || ext.username || 'Unnamed'})` : `Extension ${destValue}`;
                     }
                     case 'ivr': {
                         const ivr = ivrList.find(i => i.id == destValue);
+                        console.log('IVR lookup:', { destValue, found: ivr });
                         return ivr ? `IVR: ${ivr.name}` : `IVR ${destValue}`;
                     }
                     case 'queue': {

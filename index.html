@@ -378,6 +378,12 @@
                 const result = await apiRequest(endpoint);
 
                 console.log('📊 RAW STATS RESPONSE:', JSON.stringify(result, null, 2));
+                console.log('📊 RAW STATS RESPONSE (Enhanced):', {
+                    endpoint: endpoint,
+                    fullResponse: JSON.stringify(result, null, 2),
+                    dataStructure: result ? Object.keys(result) : 'No result',
+                    statsList: result ? (result.ext_call_statistics_list || result.data || []) : []
+                });
 
                 if (result && result.errcode === 0) {
                     // Handle both possible response structures

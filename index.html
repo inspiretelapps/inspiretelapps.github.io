@@ -93,6 +93,16 @@
                 </div>
             </div>
 
+            <!-- Route Switching System -->
+            <div class="card">
+                <h2>Route Switching System</h2>
+                <p style="font-size: 0.875rem; opacity: 0.7; margin-bottom: 1rem;">Switch between predefined route configurations by changing route priorities</p>
+                <div id="route-switching-loader">Loading...</div>
+                <div id="route-switching-content" class="hidden">
+                    <!-- Route switching controls will be injected here -->
+                </div>
+            </div>
+
             <!-- Advanced Inbound Route Management -->
             <div class="card">
                 <h2>Advanced Inbound Route Management</h2>
@@ -453,12 +463,23 @@
                     routeElement.style.borderRadius = 'var(--radius)';
 
                     let destinationHTML = '';
-                    if (route.time_condition === 'disabled') {
-                        destinationHTML = `<p>Default: <span>${route.default_desination_value || 'Not Set'}</span></p>`;
+                    if (route.time_condition === 'disabled' || !route.time_condition) {
+                        const defaultDest = route.def_dest_value ||
+                                          route.default_destination_value ||
+                                          route.default_desination_value || // API typo
+                                          route.destination_value ||
+                                          'Not Set';
+                        destinationHTML = `<p>Default: <span>${defaultDest}</span></p>`;
                     } else {
+                         const businessHours = route.business_hours_destination_value ||
+                                             route.bh_destination_value ||
+                                             'Not Set';
+                         const outsideHours = route.outside_business_hours_destination_value ||
+                                            route.obh_destination_value ||
+                                            'Not Set';
                          destinationHTML = `
-                            <p>Office Hours: <span>${route.business_hours_destination_value || 'Not Set'}</span></p>
-                            <p>Outside Office Hours: <span>${route.outside_business_hours_destination_value || 'Not Set'}</span></p>
+                            <p>Office Hours: <span>${businessHours}</span></p>
+                            <p>Outside Office Hours: <span>${outsideHours}</span></p>
                          `;
                     }
 
@@ -676,16 +697,22 @@
                     routeCard.style.borderRadius = 'var(--radius)';
                     routeCard.style.marginBottom = '1rem';
 
-                    // Use the same logic as the working inbound routes display
+                    // Improved destination handling with comprehensive field checking
                     let dest, destValue;
                     if (route.time_condition === 'disabled' || !route.time_condition) {
-                        // Simple routing - check multiple possible field names
-                        dest = route.def_dest || route.default_destination;
-                        destValue = route.def_dest_value || route.default_destination_value || route.default_desination_value; // Note: API has typo
+                        // Simple routing - check all possible field name variations
+                        dest = route.def_dest || route.default_destination || route.destination;
+                        destValue = route.def_dest_value ||
+                                   route.default_destination_value ||
+                                   route.default_desination_value || // API typo
+                                   route.destination_value ||
+                                   route.def_destination_value;
                     } else {
-                        // Time-based routing - show primary destination
-                        dest = route.business_hours_destination;
-                        destValue = route.business_hours_destination_value;
+                        // Time-based routing - show primary destination with fallbacks
+                        dest = route.business_hours_destination || route.bh_destination;
+                        destValue = route.business_hours_destination_value ||
+                                   route.bh_destination_value ||
+                                   route.business_hours_dest_value;
                     }
 
                     const currentDest = getCurrentDestinationName(dest, destValue);
@@ -773,6 +800,178 @@
                 } catch (error) {
                     console.error('Quick change error:', error);
                     alert('Failed to change route: ' + error.message);
+                }
+            };
+
+            // Route Switching System
+            async function fetchAndRenderRouteSwitching() {
+                setLoader('route-switching', true);
+                const result = await apiRequest('inbound_route/list?page_size=100&sort_by=pos&order_by=asc');
+                if (result && result.errcode === 0) {
+                    renderRouteSwitching(result.data);
+                } else {
+                    renderRouteSwitching([]);
+                }
+                setLoader('route-switching', false);
+            }
+
+            function renderRouteSwitching(routes) {
+                const container = document.getElementById('route-switching-content');
+                container.innerHTML = '';
+
+                if (!routes || routes.length === 0) {
+                    container.innerHTML = '<p>No inbound routes found.</p>';
+                    return;
+                }
+
+                console.log('Route switching - processing routes:', routes.length);
+
+                // Group routes by DID pattern or similar criteria
+                const routeGroups = groupRoutesByPattern(routes);
+                console.log('Route switching - found groups:', Object.keys(routeGroups));
+
+                Object.keys(routeGroups).forEach(pattern => {
+                    const groupRoutes = routeGroups[pattern];
+                    if (groupRoutes.length <= 1) return; // Skip single routes - no switching needed
+
+                    const groupElement = document.createElement('div');
+                    groupElement.style.backgroundColor = 'var(--color-base-200)';
+                    groupElement.style.padding = '1rem';
+                    groupElement.style.borderRadius = 'var(--radius)';
+                    groupElement.style.marginBottom = '1rem';
+
+                    // Find the currently active route (lowest position number)
+                    const activeRoute = groupRoutes.reduce((prev, current) =>
+                        (prev.pos < current.pos) ? prev : current
+                    );
+
+                    const routeButtons = groupRoutes.map(route => {
+                        const isActive = route.id === activeRoute.id;
+                        const dest = route.def_dest || route.default_destination;
+                        const destValue = route.def_dest_value ||
+                                         route.default_destination_value ||
+                                         route.default_desination_value;
+                        const destName = getCurrentDestinationName(dest, destValue);
+
+                        return `
+                            <button class="btn ${isActive ? 'btn-primary' : 'btn-secondary'} btn-sm"
+                                    onclick="switchToRoute(${route.id}, '${pattern}')"
+                                    ${isActive ? 'disabled' : ''}>
+                                ${route.name} → ${destName}
+                            </button>
+                        `;
+                    }).join('');
+
+                    groupElement.innerHTML = `
+                        <div style="margin-bottom: 1rem;">
+                            <h4>Routes for: ${pattern}</h4>
+                            <p style="font-size: 0.875rem; opacity: 0.7;">
+                                Active: <strong>${activeRoute.name}</strong> (Position: ${activeRoute.pos})
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            ${routeButtons}
+                        </div>
+                    `;
+                    container.appendChild(groupElement);
+                });
+
+                if (Object.keys(routeGroups).length === 0) {
+                    container.innerHTML = '<p>No route groups found for switching. You need multiple routes with the same DID pattern to use route switching.</p>';
+                }
+            }
+
+            function groupRoutesByPattern(routes) {
+                const groups = {};
+                routes.forEach(route => {
+                    // Group by DID pattern, or by first DID if multiple patterns
+                    const key = (route.did_pattern_list && route.did_pattern_list.length > 0)
+                               ? route.did_pattern_list[0]
+                               : route.name; // Fallback to name if no DID pattern
+
+                    if (!groups[key]) {
+                        groups[key] = [];
+                    }
+                    groups[key].push(route);
+                });
+
+                // Only return groups with multiple routes
+                const multiRouteGroups = {};
+                Object.keys(groups).forEach(key => {
+                    if (groups[key].length > 1) {
+                        multiRouteGroups[key] = groups[key];
+                    }
+                });
+
+                return multiRouteGroups;
+            }
+
+            window.switchToRoute = async function(targetRouteId, pattern) {
+                try {
+                    // First, get all routes to understand current positions
+                    const routesResult = await apiRequest('inbound_route/list?page_size=100&sort_by=pos&order_by=asc');
+                    if (!routesResult || routesResult.errcode !== 0) {
+                        throw new Error('Failed to fetch routes for switching');
+                    }
+
+                    const routes = routesResult.data;
+                    const routeGroups = groupRoutesByPattern(routes);
+                    const groupRoutes = routeGroups[pattern];
+
+                    if (!groupRoutes) {
+                        throw new Error('Route group not found');
+                    }
+
+                    // Find the target route
+                    const targetRoute = groupRoutes.find(r => r.id === targetRouteId);
+                    if (!targetRoute) {
+                        throw new Error('Target route not found');
+                    }
+
+                    // Find the currently active route (lowest position in the group)
+                    const currentActiveRoute = groupRoutes.reduce((prev, current) =>
+                        (prev.pos < current.pos) ? prev : current
+                    );
+
+                    if (targetRoute.id === currentActiveRoute.id) {
+                        alert('This route is already active');
+                        return;
+                    }
+
+                    // Strategy: Swap positions between current active and target route
+                    const currentActivePos = currentActiveRoute.pos;
+                    const targetPos = targetRoute.pos;
+
+                    // Update the current active route to have a higher position
+                    const updateCurrentResult = await apiRequest('inbound_route/update', 'POST', {
+                        id: currentActiveRoute.id,
+                        pos: targetPos
+                    });
+
+                    if (!updateCurrentResult || updateCurrentResult.errcode !== 0) {
+                        throw new Error(`Failed to update current active route position: ${updateCurrentResult ? updateCurrentResult.errmsg : 'Unknown error'}`);
+                    }
+
+                    // Update the target route to have the lowest position (making it active)
+                    const updateTargetResult = await apiRequest('inbound_route/update', 'POST', {
+                        id: targetRoute.id,
+                        pos: currentActivePos
+                    });
+
+                    if (!updateTargetResult || updateTargetResult.errcode !== 0) {
+                        throw new Error(`Failed to update target route position: ${updateTargetResult ? updateTargetResult.errmsg : 'Unknown error'}`);
+                    }
+
+                    alert(`Successfully switched to route: ${targetRoute.name}`);
+
+                    // Refresh all route displays
+                    fetchAndRenderRouteSwitching();
+                    fetchAndRenderInboundRoutes();
+                    fetchAndRenderQuickOverride();
+
+                } catch (error) {
+                    console.error('Route switching error:', error);
+                    alert(`Failed to switch route: ${error.message}`);
                 }
             };
 
@@ -942,6 +1141,7 @@
                         Promise.all([
                             fetchAndRenderStats(extensionIds),
                             fetchAndRenderQuickOverride(),
+                            fetchAndRenderRouteSwitching(),
                             fetchAndRenderInboundRoutes(),
                             fetchAndRenderRecentCalls(1)
                         ]);

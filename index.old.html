@@ -395,19 +395,8 @@
                     extensionStatsBody.innerHTML = row;
                 } else {
                     stats.forEach(ext => {
-                        // Try multiple possible field name variations from Yeastar API
-                        const inboundAnswered = ext.inbound_answered_calls || 
-                                               ext.answered_inbound_calls || 
-                                               ext.inbound_calls ||
-                                               ext.incoming_calls ||
-                                               ext.answered_incoming_calls ||
-                                               0;
-                        const outboundAnswered = ext.outbound_answered_calls || 
-                                                ext.answered_outbound_calls || 
-                                                ext.outbound_calls ||
-                                                ext.outgoing_calls ||
-                                                ext.answered_outgoing_calls ||
-                                                0;
+                        const inboundAnswered = ext.inbound_answered_calls || ext.answered_inbound_calls || 0;
+                        const outboundAnswered = ext.outbound_answered_calls || ext.answered_outbound_calls || 0;
 
                         console.log('Extension stats:', {
                             name: ext.ext_name,
@@ -426,8 +415,8 @@
                         `;
                         extensionStatsBody.innerHTML += row;
 
-                        totalAnswered += ext.answered_calls || 0;
-                        totalDuration += ext.total_talking_time || 0;
+                        totalAnswered += ext.answered_calls;
+                        totalDuration += ext.total_talking_time;
                         totalMissed += ext.missed_calls || 0;
                     });
                 }
@@ -696,27 +685,14 @@
                 const config = JSON.parse(localStorage.getItem(`quickButtons_${routeId}`)) || getDefaultButtonConfig();
                 const buttonConfig = buttonNumber === 1 ? config.button1 : config.button2;
 
+                const payload = {
+                    id: parseInt(routeId),
+                    def_dest: buttonConfig.dest,
+                    def_dest_value: String(buttonConfig.destValue)
+                };
+
                 try {
-                    // First, get the complete route details
-                    console.log('Fetching route details for quick override...');
-                    const routeDetails = await apiRequest(`inbound_route/get?id=${routeId}`);
-                    
-                    if (!routeDetails || routeDetails.errcode !== 0) {
-                        throw new Error('Failed to fetch route details');
-                    }
-
-                    // Update the destination fields in the complete route object
-                    const routeData = routeDetails.data;
-                    const payload = {
-                        ...routeData,  // Preserve all existing settings
-                        id: parseInt(routeId),
-                        def_dest: buttonConfig.dest,
-                        def_dest_value: String(buttonConfig.destValue)
-                    };
-
-                    console.log('Updating route with payload:', payload);
                     const result = await apiRequest('inbound_route/update', 'POST', payload);
-                    
                     if (result && result.errcode === 0) {
                         alert(`Route changed to: ${buttonConfig.label}`);
                         fetchAndRenderQuickOverride();
@@ -1027,45 +1003,19 @@
                         throw new Error('Failed to fetch target route details');
                     }
 
-                    // Swap positions: target gets current's position, current gets target's position
-                    console.log('Swapping route positions...');
-                    const currentRouteData = currentRouteDetails.data;
+                    // Only update the target route to have the highest priority (lowest position number)
+                    console.log('Updating target route to highest priority...');
                     const targetRouteData = targetRouteDetails.data;
-                    
-                    const currentOriginalPos = currentActiveRoute.pos;
-                    const targetOriginalPos = targetRoute.pos;
-
-                    // Update target route to have the current active route's position (higher priority)
                     const updateTargetPayload = {
-                        ...targetRouteData,      // Preserve all existing settings
-                        pos: currentOriginalPos  // Give it the current active's position
+                        ...targetRouteData,   // Preserve all existing settings
+                        pos: newTargetPos     // Give it the highest priority
                     };
 
-                    // Update current active route to have the target's original position (lower priority)
-                    const updateCurrentPayload = {
-                        ...currentRouteData,     // Preserve all existing settings
-                        pos: targetOriginalPos   // Give it the target's original position
-                    };
-
-                    console.log('Updating routes:', {
-                        targetRoute: { id: targetRoute.id, oldPos: targetOriginalPos, newPos: currentOriginalPos },
-                        currentRoute: { id: currentActiveRoute.id, oldPos: currentOriginalPos, newPos: targetOriginalPos }
-                    });
-
-                    // Perform both updates
-                    const [updateTargetResult, updateCurrentResult] = await Promise.all([
-                        apiRequest('inbound_route/update', 'POST', updateTargetPayload),
-                        apiRequest('inbound_route/update', 'POST', updateCurrentPayload)
-                    ]);
+                    const updateTargetResult = await apiRequest('inbound_route/update', 'POST', updateTargetPayload);
 
                     if (!updateTargetResult || updateTargetResult.errcode !== 0) {
                         console.error('Failed to update target route:', updateTargetResult);
                         throw new Error(`Failed to update target route position: ${updateTargetResult ? updateTargetResult.errmsg : 'Unknown error'}`);
-                    }
-
-                    if (!updateCurrentResult || updateCurrentResult.errcode !== 0) {
-                        console.error('Failed to update current route:', updateCurrentResult);
-                        throw new Error(`Failed to update current route position: ${updateCurrentResult ? updateCurrentResult.errmsg : 'Unknown error'}`);
                     }
 
                     console.log('Both routes updated successfully!');

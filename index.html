@@ -1083,12 +1083,29 @@
                         target: { name: targetRoute.name, id: targetRoute.id, pos: targetPos }
                     });
 
-                    // Update the current active route to have a higher position
+                    // First, get the complete route details for both routes to preserve all settings
+                    console.log('Fetching complete route details for position swap...');
+                    const [currentRouteDetails, targetRouteDetails] = await Promise.all([
+                        apiRequest(`inbound_route/get?id=${currentActiveRoute.id}`),
+                        apiRequest(`inbound_route/get?id=${targetRoute.id}`)
+                    ]);
+
+                    if (!currentRouteDetails || currentRouteDetails.errcode !== 0) {
+                        throw new Error('Failed to fetch current route details');
+                    }
+                    if (!targetRouteDetails || targetRouteDetails.errcode !== 0) {
+                        throw new Error('Failed to fetch target route details');
+                    }
+
+                    // Update the current active route to have a higher position (preserve ALL other settings)
                     console.log('Updating current active route position...');
-                    const updateCurrentResult = await apiRequest('inbound_route/update', 'POST', {
-                        id: currentActiveRoute.id,
-                        pos: targetPos
-                    });
+                    const currentRouteData = currentRouteDetails.data;
+                    const updateCurrentPayload = {
+                        ...currentRouteData,  // Preserve all existing settings
+                        pos: targetPos        // Only change the position
+                    };
+
+                    const updateCurrentResult = await apiRequest('inbound_route/update', 'POST', updateCurrentPayload);
 
                     if (!updateCurrentResult || updateCurrentResult.errcode !== 0) {
                         console.error('Failed to update current route:', updateCurrentResult);
@@ -1097,11 +1114,14 @@
 
                     console.log('Current route updated successfully, now updating target route...');
 
-                    // Update the target route to have the lowest position (making it active)
-                    const updateTargetResult = await apiRequest('inbound_route/update', 'POST', {
-                        id: targetRoute.id,
-                        pos: currentActivePos
-                    });
+                    // Update the target route to have the lowest position (preserve ALL other settings)
+                    const targetRouteData = targetRouteDetails.data;
+                    const updateTargetPayload = {
+                        ...targetRouteData,   // Preserve all existing settings
+                        pos: currentActivePos // Only change the position
+                    };
+
+                    const updateTargetResult = await apiRequest('inbound_route/update', 'POST', updateTargetPayload);
 
                     if (!updateTargetResult || updateTargetResult.errcode !== 0) {
                         console.error('Failed to update target route:', updateTargetResult);

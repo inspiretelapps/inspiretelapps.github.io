@@ -367,12 +367,25 @@
                 const endTime = `${year}/${month}/${day} 23:59:59`;
 
                 const endpoint = `call_report/list?type=extcallstatistics&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}&ext_id_list=${extensionIds.join(',')}`;
+                
+                console.log('🔍 FETCHING STATS:', {
+                    endpoint,
+                    extensionIds,
+                    startTime,
+                    endTime
+                });
+                
                 const result = await apiRequest(endpoint);
 
-                if (result && result.errcode === 0 && result.ext_call_statistics_list) {
-                    renderStats(result.ext_call_statistics_list);
+                console.log('📊 RAW STATS RESPONSE:', JSON.stringify(result, null, 2));
+
+                if (result && result.errcode === 0) {
+                    // Handle both possible response structures
+                    const statsList = result.ext_call_statistics_list || result.data || [];
+                    console.log('📋 Stats list found:', statsList);
+                    renderStats(statsList);
                 } else {
-                    console.error("Failed to fetch stats or no stats available:", result);
+                    console.error("❌ Failed to fetch stats or no stats available:", result);
                     renderStats([]);
                 }
                 setLoader('stats', false);
@@ -395,56 +408,62 @@
                     extensionStatsBody.innerHTML = row;
                 } else {
                     stats.forEach(ext => {
+                        // Log ALL fields to see what the API actually returns
+                        console.log('📞 COMPLETE EXTENSION DATA:', {
+                            name: ext.ext_name,
+                            number: ext.ext_num,
+                            ALL_FIELDS: Object.keys(ext),
+                            FULL_OBJECT: ext
+                        });
+
                         // Try multiple possible field name variations from Yeastar API
                         const inboundAnswered = ext.inbound_answered_calls || 
                                                ext.answered_inbound_calls || 
                                                ext.inbound_calls ||
                                                ext.incoming_calls ||
                                                ext.answered_incoming_calls ||
+                                               ext.inbound_talking ||
+                                               ext.in_calls ||
                                                0;
                         const outboundAnswered = ext.outbound_answered_calls || 
                                                 ext.answered_outbound_calls || 
                                                 ext.outbound_calls ||
                                                 ext.outgoing_calls ||
                                                 ext.answered_outgoing_calls ||
+                                                ext.outbound_talking ||
+                                                ext.out_calls ||
                                                 0;
 
-                        console.log('Extension stats:', {
-                            name: ext.ext_name,
-                            number: ext.ext_num,
-                            inbound: inboundAnswered,
-                            outbound: outboundAnswered,
-                            rawData: ext
-                        });
+                        console.log(`📊 ${ext.ext_name} (${ext.ext_num}): Inbound=${inboundAnswered}, Outbound=${outboundAnswered}`);
 
                         const row = `
                             <tr>
                                 <td>${ext.ext_name} (${ext.ext_num})</td>
-                                <td class="text-center">${inboundAnswered}/${outboundAnswered}</td>
-                                <td class="text-center">${formatDuration(ext.total_talking_time)}</td>
+                                <td class="text-center"><strong>${inboundAnswered}/${outboundAnswered}</strong></td>
+                                <td class="text-center">${formatDuration(ext.total_talking_time || ext.talk_duration || 0)}</td>
                             </tr>
                         `;
                         extensionStatsBody.innerHTML += row;
 
-                        totalAnswered += ext.answered_calls || 0;
-                        totalDuration += ext.total_talking_time || 0;
-                        totalMissed += ext.missed_calls || 0;
+                        totalAnswered += (ext.answered_calls || 0);
+                        totalDuration += (ext.total_talking_time || ext.talk_duration || 0);
+                        totalMissed += (ext.missed_calls || ext.unanswered_calls || 0);
                     });
                 }
 
                 const overallStatsContainer = document.getElementById('overall-stats');
                 overallStatsContainer.innerHTML = `
-                    <div>
-                        <div>Total Answered</div>
-                        <div>${totalAnswered}</div>
+                    <div style="padding: 1rem; background: var(--color-base-200); border-radius: 0.5rem;">
+                        <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Answered</div>
+                        <div style="font-size: 1.5rem; font-weight: 700;">${totalAnswered}</div>
                     </div>
-                    <div>
-                        <div>Total Missed</div>
-                        <div style="color: var(--color-error);">${totalMissed}</div>
+                    <div style="padding: 1rem; background: var(--color-base-200); border-radius: 0.5rem;">
+                        <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Missed</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-error);">${totalMissed}</div>
                     </div>
-                    <div>
-                        <div>Total Duration</div>
-                        <div>${formatDuration(totalDuration)}</div>
+                    <div style="padding: 1rem; background: var(--color-base-200); border-radius: 0.5rem;">
+                        <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Duration</div>
+                        <div style="font-size: 1.5rem; font-weight: 700;">${formatDuration(totalDuration)}</div>
                     </div>
                 `;
             }
@@ -957,14 +976,19 @@
             }
 
             window.switchToRoute = async function(targetRouteId, pattern) {
+                console.log('🔀 SWITCH TO ROUTE CALLED:', { targetRouteId, pattern });
+                
                 try {
                     // First, get all routes to understand current positions
                     const routesResult = await apiRequest('inbound_route/list?page_size=100&sort_by=pos&order_by=asc');
+                    console.log('📋 All routes fetched:', routesResult);
+                    
                     if (!routesResult || routesResult.errcode !== 0) {
                         throw new Error('Failed to fetch routes for switching');
                     }
 
                     const routes = routesResult.data;
+                    console.log('📍 All route positions:', routes.map(r => ({ id: r.id, name: r.name, pos: r.pos })));
 
                     // Try both grouping methods to find the route group
                     let routeGroups = groupRoutesByPattern(routes);
@@ -1047,10 +1071,13 @@
                         pos: targetOriginalPos   // Give it the target's original position
                     };
 
-                    console.log('Updating routes:', {
-                        targetRoute: { id: targetRoute.id, oldPos: targetOriginalPos, newPos: currentOriginalPos },
-                        currentRoute: { id: currentActiveRoute.id, oldPos: currentOriginalPos, newPos: targetOriginalPos }
+                    console.log('🔄 Updating routes:', {
+                        targetRoute: { id: targetRoute.id, name: targetRoute.name, oldPos: targetOriginalPos, newPos: currentOriginalPos },
+                        currentRoute: { id: currentActiveRoute.id, name: currentActiveRoute.name, oldPos: currentOriginalPos, newPos: targetOriginalPos }
                     });
+
+                    console.log('📤 Target payload (first 200 chars):', JSON.stringify(updateTargetPayload).substring(0, 200));
+                    console.log('📤 Current payload (first 200 chars):', JSON.stringify(updateCurrentPayload).substring(0, 200));
 
                     // Perform both updates
                     const [updateTargetResult, updateCurrentResult] = await Promise.all([
@@ -1058,19 +1085,26 @@
                         apiRequest('inbound_route/update', 'POST', updateCurrentPayload)
                     ]);
 
+                    console.log('📥 Target route update result:', updateTargetResult);
+                    console.log('📥 Current route update result:', updateCurrentResult);
+
                     if (!updateTargetResult || updateTargetResult.errcode !== 0) {
-                        console.error('Failed to update target route:', updateTargetResult);
+                        console.error('❌ Failed to update target route:', updateTargetResult);
                         throw new Error(`Failed to update target route position: ${updateTargetResult ? updateTargetResult.errmsg : 'Unknown error'}`);
                     }
 
                     if (!updateCurrentResult || updateCurrentResult.errcode !== 0) {
-                        console.error('Failed to update current route:', updateCurrentResult);
+                        console.error('❌ Failed to update current route:', updateCurrentResult);
                         throw new Error(`Failed to update current route position: ${updateCurrentResult ? updateCurrentResult.errmsg : 'Unknown error'}`);
                     }
 
-                    console.log('Both routes updated successfully!');
+                    console.log('✅ Both routes updated successfully!');
 
-                    alert(`Successfully switched to route: ${targetRoute.name}`);
+                    // Verify the change
+                    const verifyResult = await apiRequest('inbound_route/list?page_size=100&sort_by=pos&order_by=asc');
+                    console.log('🔍 Verifying new positions:', verifyResult.data.map(r => ({ id: r.id, name: r.name, pos: r.pos })));
+
+                    alert(`✅ Successfully switched to route: ${targetRoute.name}\n\nCheck console for detailed verification.`);
 
                     // Refresh all route displays
                     fetchAndRenderRouteSwitching();

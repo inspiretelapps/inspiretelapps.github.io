@@ -1039,12 +1039,24 @@
                     }
 
                     const routes = routesResult.data;
-                    const routeGroups = groupRoutesByPattern(routes);
-                    const groupRoutes = routeGroups[pattern];
+
+                    // Try both grouping methods to find the route group
+                    let routeGroups = groupRoutesByPattern(routes);
+                    let groupRoutes = routeGroups[pattern];
 
                     if (!groupRoutes) {
-                        throw new Error('Route group not found');
+                        // Try alternative name-based grouping
+                        routeGroups = groupRoutesByNamePattern(routes);
+                        groupRoutes = routeGroups[pattern];
                     }
+
+                    if (!groupRoutes) {
+                        console.error('Available route groups:', Object.keys(routeGroups));
+                        console.error('Looking for pattern:', pattern);
+                        throw new Error(`Route group '${pattern}' not found. Available groups: ${Object.keys(routeGroups).join(', ')}`);
+                    }
+
+                    console.log('Found route group for switching:', pattern, 'with routes:', groupRoutes.map(r => r.name));
 
                     // Find the target route
                     const targetRoute = groupRoutes.find(r => r.id === targetRouteId);
@@ -1066,15 +1078,24 @@
                     const currentActivePos = currentActiveRoute.pos;
                     const targetPos = targetRoute.pos;
 
+                    console.log('Switching routes:', {
+                        current: { name: currentActiveRoute.name, id: currentActiveRoute.id, pos: currentActivePos },
+                        target: { name: targetRoute.name, id: targetRoute.id, pos: targetPos }
+                    });
+
                     // Update the current active route to have a higher position
+                    console.log('Updating current active route position...');
                     const updateCurrentResult = await apiRequest('inbound_route/update', 'POST', {
                         id: currentActiveRoute.id,
                         pos: targetPos
                     });
 
                     if (!updateCurrentResult || updateCurrentResult.errcode !== 0) {
+                        console.error('Failed to update current route:', updateCurrentResult);
                         throw new Error(`Failed to update current active route position: ${updateCurrentResult ? updateCurrentResult.errmsg : 'Unknown error'}`);
                     }
+
+                    console.log('Current route updated successfully, now updating target route...');
 
                     // Update the target route to have the lowest position (making it active)
                     const updateTargetResult = await apiRequest('inbound_route/update', 'POST', {
@@ -1083,8 +1104,11 @@
                     });
 
                     if (!updateTargetResult || updateTargetResult.errcode !== 0) {
+                        console.error('Failed to update target route:', updateTargetResult);
                         throw new Error(`Failed to update target route position: ${updateTargetResult ? updateTargetResult.errmsg : 'Unknown error'}`);
                     }
+
+                    console.log('Both routes updated successfully!');
 
                     alert(`Successfully switched to route: ${targetRoute.name}`);
 

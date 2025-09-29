@@ -71,15 +71,15 @@
             <!-- Recent Calls -->
             <div class="card">
                 <h2>Recent Calls</h2>
-                <button id="refresh-recent" class="btn btn-secondary" style="margin-bottom: 1rem;">Refresh</button>
                 <div id="recent-calls-loader">Loading...</div>
                 <div id="recent-calls-content" class="hidden">
                     <!-- Recent calls will be injected here -->
                 </div>
-                <div id="recent-calls-pagination" class="hidden" style="display: flex; justify-content: center; gap: 1rem; margin-top: 1rem;">
-                    <button id="prev-calls" class="btn" disabled>Previous</button>
+                <div id="recent-calls-pagination" class="hidden" style="display: flex; justify-content: center; gap: 0.5rem; align-items: center; margin-top: 1rem; font-size: 0.875rem;">
+                    <button id="refresh-recent" class="btn btn-sm btn-secondary">Refresh</button>
                     <span id="page-info">Page 1</span>
-                    <button id="next-calls" class="btn">Next</button>
+                    <button id="prev-calls" class="btn btn-sm" disabled>Previous</button>
+                    <button id="next-calls" class="btn btn-sm">Next</button>
                 </div>
             </div>
 
@@ -447,10 +447,12 @@
 
                         console.log(`📊 ${ext.ext_name} (${ext.ext_num}): Total Calls=${totalCalls}, Answered=${totalAnsweredCalls}, Missed=${totalMissedCalls}`);
 
+                        // In renderStats, update row to clickable and format
                         const row = `
                             <tr>
                                 <td>${ext.ext_name} (${ext.ext_num})</td>
-                                <td class="text-center"><strong>Total: ${totalCalls} (Answered: ${totalAnsweredCalls})</strong></td>
+                                <td class="text-center clickable-stats" data-ext="${ext.ext_num}" data-type="calls" onclick="showCallsModal('${ext.ext_name}', '${ext.ext_num}', 'calls')"><strong>in: 0 out: 0 / ${totalCalls}</strong></td>
+                                <td class="text-center clickable-stats" data-ext="${ext.ext_num}" data-type="missed" onclick="showCallsModal('${ext.ext_name}', '${ext.ext_num}', 'missed')"><strong>${totalMissedCalls}</strong></td>
                                 <td class="text-center">${formatDuration(ext.total_talking_time || 0)}</td>
                             </tr>
                         `;
@@ -465,11 +467,11 @@
                 overallStatsContainer.innerHTML = `
                     <div style="padding: 1rem; background: var(--color-base-200); border-radius: 0.5rem;">
                         <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Calls</div>
-                        <div style="font-size: 1.5rem; font-weight: 700;">${totalAnswered + totalMissed}</div>  <!-- Or adjust as needed -->
+                        <div style="font-size: 1.5rem; font-weight: 700;" class="clickable-stats" onclick="showCallsModal('All', '', 'calls')">in: 0 out: 0 / ${totalAnswered + totalMissed}</div>
                     </div>
                     <div style="padding: 1rem; background: var(--color-base-200); border-radius: 0.5rem;">
                         <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Missed</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-error);">${totalMissed}</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-error);" class="clickable-stats" onclick="showCallsModal('All', '', 'missed')">${totalMissed}</div>
                     </div>
                     <div style="padding: 1rem; background: var(--color-base-200); border-radius: 0.5rem;">
                         <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Duration</div>
@@ -661,9 +663,15 @@
                                 <div class="form-group">
                                     <label>Destination</label>
                                     <select id="btn1-dest" class="input">
-                                        <option value="extension:${extensionList[0]?.id || '1'}" ${config.button1.dest === 'extension' ? 'selected' : ''}>Extension</option>
-                                        <option value="ivr:${ivrList[0]?.id || '1'}" ${config.button1.dest === 'ivr' ? 'selected' : ''}>IVR</option>
-                                        <option value="ext_vm:${extensionList[0]?.id || '1'}" ${config.button1.dest === 'ext_vm' ? 'selected' : ''}>Voicemail</option>
+                                        <optgroup label="Extensions">
+                                            ${extensionList.map(ext => `<option value="extension:${ext.id}" ${config.button1.dest === 'extension' && config.button1.destValue == ext.id ? 'selected' : ''}>Ext ${ext.number} - ${ext.display_name || ext.username}</option>`).join('')}
+                                        </optgroup>
+                                        <optgroup label="IVRs">
+                                            ${ivrList.map(ivr => `<option value="ivr:${ivr.id}" ${config.button1.dest === 'ivr' && config.button1.destValue == ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
+                                        </optgroup>
+                                        <optgroup label="Queues">
+                                            ${queueList.map(q => `<option value="queue:${q.id}" ${config.button1.dest === 'queue' && config.button1.destValue == q.id ? 'selected' : ''}>${q.name}</option>`).join('')}
+                                        </optgroup>
                                         <option value="end_call:" ${config.button1.dest === 'end_call' ? 'selected' : ''}>End Call</option>
                                     </select>
                                 </div>
@@ -677,9 +685,15 @@
                                 <div class="form-group">
                                     <label>Destination</label>
                                     <select id="btn2-dest" class="input">
-                                        <option value="extension:${extensionList[0]?.id || '1'}" ${config.button2.dest === 'extension' ? 'selected' : ''}>Extension</option>
-                                        <option value="ivr:${ivrList[0]?.id || '1'}" ${config.button2.dest === 'ivr' ? 'selected' : ''}>IVR</option>
-                                        <option value="ext_vm:${extensionList[0]?.id || '1'}" ${config.button2.dest === 'ext_vm' ? 'selected' : ''}>Voicemail</option>
+                                        <optgroup label="Extensions">
+                                            ${extensionList.map(ext => `<option value="extension:${ext.id}" ${config.button2.dest === 'extension' && config.button2.destValue == ext.id ? 'selected' : ''}>Ext ${ext.number} - ${ext.display_name || ext.username}</option>`).join('')}
+                                        </optgroup>
+                                        <optgroup label="IVRs">
+                                            ${ivrList.map(ivr => `<option value="ivr:${ivr.id}" ${config.button2.dest === 'ivr' && config.button2.destValue == ivr.id ? 'selected' : ''}>${ivr.name}</option>`).join('')}
+                                        </optgroup>
+                                        <optgroup label="Queues">
+                                            ${queueList.map(q => `<option value="queue:${q.id}" ${config.button2.dest === 'queue' && config.button2.destValue == q.id ? 'selected' : ''}>${q.name}</option>`).join('')}
+                                        </optgroup>
                                         <option value="end_call:" ${config.button2.dest === 'end_call' ? 'selected' : ''}>End Call</option>
                                     </select>
                                 </div>
@@ -699,7 +713,9 @@
                     e.preventDefault();
 
                     const [btn1Dest, btn1Value] = modal.querySelector('#btn1-dest').value.split(':');
+                    if (btn1Dest === 'end_call') btn1Value = '';
                     const [btn2Dest, btn2Value] = modal.querySelector('#btn2-dest').value.split(':');
+                    if (btn2Dest === 'end_call') btn2Value = '';
 
                     const newConfig = {
                         button1: {
@@ -1207,6 +1223,67 @@
                     default: return 'badge-ghost';
                 }
             }
+
+            // Enhance formatDuration for hours
+            function formatDuration(seconds) {
+                if (seconds === 0) return '0m';
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = seconds % 60;
+                if (hours > 0) {
+                    return `${hours}h ${minutes}m ${secs}s`;
+                } else if (minutes > 0) {
+                    return `${minutes}m ${secs}s`;
+                } else {
+                    return `${secs}s`;
+                }
+            }
+
+            // Add global function for clickable stats
+            window.showCallsModal = async function(extName, extNum, type) {
+                console.log('📞 Showing calls modal for', {extName, extNum, type});
+                const modal = document.createElement('dialog');
+                modal.className = 'modal';
+                modal.innerHTML = `
+                    <div class="modal-box">
+                        <h3>${type === 'calls' ? 'Total Calls' : 'Missed Calls'} for ${extName || 'All Extensions'} (Today)</h3>
+                        <div id="calls-list" style="max-height: 300px; overflow-y: auto; margin-bottom: 1rem;"></div>
+                        <div class="modal-action">
+                            <button type="button" class="btn" onclick="this.closest('dialog').close()">Close</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                modal.showModal();
+
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                const startTime = `${year}/${month}/${day} 00:00:00`;
+                const endTime = `${year}/${month}/${day} 23:59:59`;
+
+                let endpoint = `cdr/list?page_size=50&sort_by=time&order_by=desc&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
+                if (extNum && extNum !== '') {
+                    endpoint += `&ext_num=${extNum}`;
+                }
+                if (type === 'missed') {
+                    endpoint += '&disposition=NOANSWER,BUSY,FAILED';  // Filter for missed
+                }
+
+                const result = await apiRequest(endpoint);
+                const callsList = document.getElementById('calls-list');
+                if (result && result.errcode === 0 && result.data && result.data.length > 0) {
+                    callsList.innerHTML = result.data.map(call => `
+                        <div style="padding: 0.5rem; border-bottom: 1px solid var(--color-border);">
+                            <p><strong>${call.call_from} → ${call.call_to}</strong> (${call.disposition})</p>
+                            <p style="font-size: 0.875rem; opacity: 0.7;">${call.time} | ${formatDuration(call.talk_duration || 0)}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    callsList.innerHTML = '<p>No calls found matching the criteria.</p>';
+                }
+            };
 
             // --- PWA Service Worker ---
             // function registerServiceWorker() {

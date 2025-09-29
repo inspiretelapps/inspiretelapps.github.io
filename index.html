@@ -676,8 +676,20 @@
                     routeCard.style.borderRadius = 'var(--radius)';
                     routeCard.style.marginBottom = '1rem';
 
-                    const currentDest = getCurrentDestinationName(route.def_dest, route.def_dest_value);
-                    console.log('Current dest for route', route.name, ':', currentDest, 'def_dest:', route.def_dest, 'def_dest_value:', route.def_dest_value);
+                    // Use the same logic as the working inbound routes display
+                    let dest, destValue;
+                    if (route.time_condition === 'disabled' || !route.time_condition) {
+                        // Simple routing - check multiple possible field names
+                        dest = route.def_dest || route.default_destination;
+                        destValue = route.def_dest_value || route.default_destination_value || route.default_desination_value; // Note: API has typo
+                    } else {
+                        // Time-based routing - show primary destination
+                        dest = route.business_hours_destination;
+                        destValue = route.business_hours_destination_value;
+                    }
+
+                    const currentDest = getCurrentDestinationName(dest, destValue);
+                    console.log('Route', route.name, '- time_condition:', route.time_condition, 'dest:', dest, 'destValue:', destValue, 'result:', currentDest);
 
                     const mainExt = extensionList.length > 0 ? extensionList[0] : null;
                     const mainIVR = ivrList.length > 0 ? ivrList[0] : null;

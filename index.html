@@ -103,14 +103,6 @@
                 </div>
             </div>
 
-            <!-- Advanced Inbound Route Management -->
-            <div class="card">
-                <h2>Advanced Inbound Route Management</h2>
-                <div id="routing-loader">Loading...</div>
-                <div id="routing-content" class="hidden">
-                    <!-- Inbound routes will be injected here -->
-                </div>
-            </div>
         </div>
 
         <!-- Edit Route Modal -->
@@ -403,8 +395,17 @@
                     extensionStatsBody.innerHTML = row;
                 } else {
                     stats.forEach(ext => {
-                        const inboundAnswered = ext.inbound_answered_calls || 0;
-                        const outboundAnswered = ext.outbound_answered_calls || 0;
+                        const inboundAnswered = ext.inbound_answered_calls || ext.answered_inbound_calls || 0;
+                        const outboundAnswered = ext.outbound_answered_calls || ext.answered_outbound_calls || 0;
+
+                        console.log('Extension stats:', {
+                            name: ext.ext_name,
+                            number: ext.ext_num,
+                            inbound: inboundAnswered,
+                            outbound: outboundAnswered,
+                            rawData: ext
+                        });
+
                         const row = `
                             <tr>
                                 <td>${ext.ext_name} (${ext.ext_num})</td>
@@ -437,217 +438,6 @@
                 `;
             }
 
-            // 2. Inbound Routing
-            async function fetchAndRenderInboundRoutes() {
-                setLoader('routing', true);
-                const result = await apiRequest('inbound_route/list?page_size=100');
-                if (result && result.errcode === 0) {
-                    renderInboundRoutes(result.data);
-                } else {
-                     renderInboundRoutes([]);
-                }
-                setLoader('routing', false);
-            }
-
-            function renderInboundRoutes(routes) {
-                const container = document.getElementById('routing-content');
-                container.innerHTML = '';
-                 if (!routes || routes.length === 0) {
-                    container.innerHTML = '<p>No inbound routes found.</p>';
-                    return;
-                }
-                routes.forEach(route => {
-                    const routeElement = document.createElement('div');
-                    routeElement.style.backgroundColor = 'var(--color-base-200)';
-                    routeElement.style.padding = '1rem';
-                    routeElement.style.borderRadius = 'var(--radius)';
-
-                    let destinationHTML = '';
-                    if (route.time_condition === 'disabled' || !route.time_condition) {
-                        const defaultDest = route.def_dest_value ||
-                                          route.default_destination_value ||
-                                          route.default_desination_value || // API typo
-                                          route.destination_value ||
-                                          'Not Set';
-                        destinationHTML = `<p>Default: <span>${defaultDest}</span></p>`;
-                    } else {
-                         const businessHours = route.business_hours_destination_value ||
-                                             route.bh_destination_value ||
-                                             'Not Set';
-                         const outsideHours = route.outside_business_hours_destination_value ||
-                                            route.obh_destination_value ||
-                                            'Not Set';
-                         destinationHTML = `
-                            <p>Office Hours: <span>${businessHours}</span></p>
-                            <p>Outside Office Hours: <span>${outsideHours}</span></p>
-                         `;
-                    }
-
-                    routeElement.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-                            <div>
-                                <h4>${route.name}</h4>
-                                ${destinationHTML}
-                            </div>
-                            <button class="btn" data-route-id="${route.id}">Edit</button>
-                        </div>
-                    `;
-                    container.appendChild(routeElement);
-                });
-                 
-                document.querySelectorAll('[data-route-id]').forEach(btn => {
-                    btn.addEventListener('click', handleEditRoute);
-                });
-            }
-            
-            async function handleEditRoute(event) {
-                const routeId = event.target.dataset.routeId;
-                const modal = document.getElementById('edit-route-modal');
-                document.getElementById('edit-route-id').value = routeId;
-
-                const routeDetails = await apiRequest(`inbound_route/get?id=${routeId}`);
-                console.log('Route details from API:', JSON.stringify(routeDetails, null, 2));
-                if (!routeDetails || routeDetails.errcode !== 0) {
-                    alert('Failed to fetch route details.');
-                    return;
-                }
-
-                let menuOptions = { extension: [], ivr: [], queue: [], ring_group: [] };  // Fallback empty
-
-                let allFailed = true;
-
-                try {
-                    // Fetch extensions directly
-                    const extResult = await apiRequest('extension/list?page_size=100');
-                    console.log('Extensions list result:', extResult);
-                    if (extResult && extResult.errcode === 0) {
-                        menuOptions.extension = (extResult.data || []).map(ext => ({
-                            id: ext.id,
-                            name: ext.display_name || ext.username || ('Ext ' + ext.number),  // Fix unnamed
-                            number: ext.number
-                        }));
-                        allFailed = false;
-                    } else {
-                        console.warn('Extensions list failed:', extResult ? extResult.errmsg : 'No result');
-                    }
-                } catch (err) {
-                    console.error('Extensions fetch error:', err);
-                }
-
-                try {
-                    // Fetch IVRs
-                    const ivrResult = await apiRequest('ivr/list?page_size=100');
-                    console.log('IVRs list result:', ivrResult);
-                    if (ivrResult && ivrResult.errcode === 0) {
-                        menuOptions.ivr = (ivrResult.data || []).map(ivr => ({
-                            id: ivr.id,
-                            name: ivr.name || 'Unnamed IVR'
-                        }));
-                        allFailed = false;
-                    } else {
-                        console.warn('IVRs list failed:', ivrResult ? ivrResult.errmsg : 'No result');
-                    }
-                } catch (err) {
-                    console.error('IVRs fetch error:', err);
-                }
-
-                try {
-                    // Fetch Queues
-                    const queueResult = await apiRequest('queue/list?page_size=100');
-                    console.log('Queues list result:', queueResult);
-                    if (queueResult && queueResult.errcode === 0) {
-                        menuOptions.queue = (queueResult.data || []).map(q => ({
-                            id: q.id,
-                            name: q.name || 'Unnamed Queue'
-                        }));
-                        allFailed = false;
-                    } else {
-                        console.warn('Queues list failed:', queueResult ? queueResult.errmsg : 'No result');
-                    }
-                } catch (err) {
-                    console.error('Queues fetch error:', err);
-                }
-
-                if (allFailed) {
-                    alert('Unable to load destinations (extensions/IVRs/queues)—using empty options. Check PBX config and API access.');
-                }
-
-                console.log('Final menu options for routes:', menuOptions);
-
-                populateDestinationSelects(menuOptions);
-
-                const route = routeDetails.data;
-                document.getElementById('edit-route-modal-title').textContent = `Edit: ${route.name}`;
-                
-                const simpleRadio = document.querySelector('input[name="routing-logic"][value="simple"]');
-                const timeBasedRadio = document.querySelector('input[name="routing-logic"][value="time-based"]');
-
-                if (route.time_condition === 'disabled') {
-                    simpleRadio.checked = true;
-                    document.getElementById('simple-destination-section').classList.remove('hidden');
-                    document.getElementById('time-based-section').classList.add('hidden');
-                    document.getElementById('simple-dest-select').value = `${route.def_dest}:${route.def_dest_value}`;
-                } else {
-                    timeBasedRadio.checked = true;
-                    document.getElementById('simple-destination-section').classList.add('hidden');
-                    document.getElementById('time-based-section').classList.remove('hidden');
-                    document.getElementById('business-hours-dest-select').value = `${route.business_hours_destination}:${route.business_hours_destination_value}`;
-                    document.getElementById('outside-business-hours-dest-select').value = `${route.outside_business_hours_destination}:${route.outside_business_hours_destination_value}`;
-                    document.getElementById('holidays-dest-select').value = `${route.holidays_hours_destination}:${route.holidays_hours_destination_value}`;
-                }
-
-                modal.showModal();
-            }
-
-            function populateDestinationSelects(options) {
-                const selects = [
-                    document.getElementById('simple-dest-select'),
-                    document.getElementById('business-hours-dest-select'),
-                    document.getElementById('outside-business-hours-dest-select'),
-                    document.getElementById('holidays-dest-select')
-                ];
-
-                selects.forEach(select => {
-                    select.innerHTML = '<option value="none:">Not Set</option>';
-                    if (options && Array.isArray(options.extension)) {
-                        options.extension.forEach(ext => select.innerHTML += `<option value="extension:${ext.id}">${ext.name} (Ext: ${ext.number})</option>`);
-                    }
-                    if (options && Array.isArray(options.ivr)) {
-                        options.ivr.forEach(ivr => select.innerHTML += `<option value="ivr:${ivr.id}">IVR: ${ivr.name}</option>`);
-                    }
-                    if (options && Array.isArray(options.queue)) {
-                        options.queue.forEach(q => select.innerHTML += `<option value="queue:${q.id}">Queue: ${q.name}</option>`);
-                    }
-                });
-            }
-
-            document.getElementById('edit-route-form').addEventListener('submit', async (event) => {
-                event.preventDefault();
-                const routeId = document.getElementById('edit-route-id').value;
-
-                const [dest, destValue] = document.getElementById('simple-dest-select').value.split(':');
-                const payload = {
-                    id: parseInt(routeId),
-                    name: document.getElementById('edit-route-modal-title').textContent.replace('Edit: ', ''),
-                    def_dest: dest,
-                    def_dest_value: String(destValue || '')
-                };
-
-                try {
-                    const result = await apiRequest('inbound_route/update', 'POST', payload);
-                    if (result && result.errcode === 0) {
-                        alert('Route updated successfully!');
-                        document.getElementById('edit-route-modal').close();
-                        fetchAndRenderInboundRoutes();
-                        fetchAndRenderQuickOverride(); // Refresh quick override too
-                    } else {
-                        alert(`Failed to update route. Error: ${result ? result.errmsg : 'Unknown'}`);
-                    }
-                } catch (error) {
-                    console.error('Update error:', error);
-                    alert('Update failed: ' + error.message);
-                }
-            });
 
             // Quick Override functionality
             async function fetchAndRenderQuickOverride() {
@@ -718,11 +508,8 @@
                     const currentDest = getCurrentDestinationName(dest, destValue);
                     console.log('Route', route.name, '- time_condition:', route.time_condition, 'dest:', dest, 'destValue:', destValue, 'result:', currentDest);
 
-                    const mainExt = extensionList.length > 0 ? extensionList[0] : null;
-                    const mainIVR = ivrList.length > 0 ? ivrList[0] : null;
-
-                    const mainExtLabel = mainExt ? `Ext ${mainExt.number}` : 'No Extensions';
-                    const mainIVRLabel = mainIVR ? `${mainIVR.name}` : 'No IVRs';
+                    // Create 2 customizable buttons per route
+                    const routeId = route.id;
 
                     routeCard.innerHTML = `
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -730,15 +517,21 @@
                                 <h4>${route.name}</h4>
                                 <p style="font-size: 0.875rem; opacity: 0.7;">Currently: ${currentDest}</p>
                             </div>
+                            <button class="btn btn-secondary btn-sm" onclick="configureQuickButtons(${routeId})">⚙️ Configure</button>
                         </div>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem;">
-                            <button class="btn btn-success btn-sm" onclick="quickChangeRoute(${route.id}, 'extension', '${mainExt ? mainExt.id : '1'}')" ${!mainExt ? 'disabled' : ''}>${mainExtLabel}</button>
-                            <button class="btn btn-info btn-sm" onclick="quickChangeRoute(${route.id}, 'ivr', '${mainIVR ? mainIVR.id : '1'}')" ${!mainIVR ? 'disabled' : ''}>${mainIVRLabel}</button>
-                            <button class="btn btn-warning btn-sm" onclick="quickChangeRoute(${route.id}, 'ext_vm', '${mainExt ? mainExt.id : '1'}')" ${!mainExt ? 'disabled' : ''}>VM ${mainExt ? mainExt.number : 'N/A'}</button>
-                            <button class="btn btn-error btn-sm" onclick="quickChangeRoute(${route.id}, 'end_call', '')">End Call</button>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                            <button class="btn btn-primary btn-sm quick-btn-1" data-route-id="${routeId}" onclick="executeQuickButton(${routeId}, 1)">
+                                <span class="btn-label">Button 1</span>
+                            </button>
+                            <button class="btn btn-secondary btn-sm quick-btn-2" data-route-id="${routeId}" onclick="executeQuickButton(${routeId}, 2)">
+                                <span class="btn-label">Button 2</span>
+                            </button>
                         </div>
                     `;
                     container.appendChild(routeCard);
+
+                    // Load saved button configurations or set defaults
+                    loadQuickButtonConfig(routeId);
                 });
             }
 
@@ -781,24 +574,133 @@
                 return ivrList.length > 0 ? ivrList[0].id : '1';
             }
 
-            window.quickChangeRoute = async function(routeId, dest, destValue) {
+            // Quick Button Configuration System
+            function loadQuickButtonConfig(routeId) {
+                const config = JSON.parse(localStorage.getItem(`quickButtons_${routeId}`)) || getDefaultButtonConfig();
+
+                const btn1 = document.querySelector(`.quick-btn-1[data-route-id="${routeId}"] .btn-label`);
+                const btn2 = document.querySelector(`.quick-btn-2[data-route-id="${routeId}"] .btn-label`);
+
+                if (btn1) btn1.textContent = config.button1.label;
+                if (btn2) btn2.textContent = config.button2.label;
+            }
+
+            function getDefaultButtonConfig() {
+                const mainExt = extensionList.length > 0 ? extensionList[0] : null;
+                const mainIVR = ivrList.length > 0 ? ivrList[0] : null;
+
+                return {
+                    button1: {
+                        label: mainExt ? `Ext ${mainExt.number}` : 'Extension',
+                        dest: 'extension',
+                        destValue: mainExt ? mainExt.id : '1'
+                    },
+                    button2: {
+                        label: mainIVR ? mainIVR.name : 'End Call',
+                        dest: mainIVR ? 'ivr' : 'end_call',
+                        destValue: mainIVR ? mainIVR.id : ''
+                    }
+                };
+            }
+
+            window.configureQuickButtons = function(routeId) {
+                const config = JSON.parse(localStorage.getItem(`quickButtons_${routeId}`)) || getDefaultButtonConfig();
+
+                const modal = document.createElement('dialog');
+                modal.className = 'modal';
+                modal.innerHTML = `
+                    <div class="modal-box">
+                        <h3>Configure Quick Buttons for Route ${routeId}</h3>
+                        <form id="quick-button-config-form">
+                            <div style="margin-bottom: 1rem;">
+                                <h4>Button 1</h4>
+                                <div class="form-group">
+                                    <label>Label</label>
+                                    <input type="text" id="btn1-label" class="input" value="${config.button1.label}">
+                                </div>
+                                <div class="form-group">
+                                    <label>Destination</label>
+                                    <select id="btn1-dest" class="input">
+                                        <option value="extension:${extensionList[0]?.id || '1'}" ${config.button1.dest === 'extension' ? 'selected' : ''}>Extension</option>
+                                        <option value="ivr:${ivrList[0]?.id || '1'}" ${config.button1.dest === 'ivr' ? 'selected' : ''}>IVR</option>
+                                        <option value="ext_vm:${extensionList[0]?.id || '1'}" ${config.button1.dest === 'ext_vm' ? 'selected' : ''}>Voicemail</option>
+                                        <option value="end_call:" ${config.button1.dest === 'end_call' ? 'selected' : ''}>End Call</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 1rem;">
+                                <h4>Button 2</h4>
+                                <div class="form-group">
+                                    <label>Label</label>
+                                    <input type="text" id="btn2-label" class="input" value="${config.button2.label}">
+                                </div>
+                                <div class="form-group">
+                                    <label>Destination</label>
+                                    <select id="btn2-dest" class="input">
+                                        <option value="extension:${extensionList[0]?.id || '1'}" ${config.button2.dest === 'extension' ? 'selected' : ''}>Extension</option>
+                                        <option value="ivr:${ivrList[0]?.id || '1'}" ${config.button2.dest === 'ivr' ? 'selected' : ''}>IVR</option>
+                                        <option value="ext_vm:${extensionList[0]?.id || '1'}" ${config.button2.dest === 'ext_vm' ? 'selected' : ''}>Voicemail</option>
+                                        <option value="end_call:" ${config.button2.dest === 'end_call' ? 'selected' : ''}>End Call</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="modal-action">
+                                <button type="submit" class="btn btn-primary">Save</button>
+                                <button type="button" class="btn" onclick="this.closest('dialog').remove()">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                `;
+
+                document.body.appendChild(modal);
+                modal.showModal();
+
+                modal.querySelector('#quick-button-config-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+
+                    const [btn1Dest, btn1Value] = modal.querySelector('#btn1-dest').value.split(':');
+                    const [btn2Dest, btn2Value] = modal.querySelector('#btn2-dest').value.split(':');
+
+                    const newConfig = {
+                        button1: {
+                            label: modal.querySelector('#btn1-label').value,
+                            dest: btn1Dest,
+                            destValue: btn1Value
+                        },
+                        button2: {
+                            label: modal.querySelector('#btn2-label').value,
+                            dest: btn2Dest,
+                            destValue: btn2Value
+                        }
+                    };
+
+                    localStorage.setItem(`quickButtons_${routeId}`, JSON.stringify(newConfig));
+                    loadQuickButtonConfig(routeId);
+                    modal.remove();
+                    alert('Button configuration saved!');
+                });
+            };
+
+            window.executeQuickButton = async function(routeId, buttonNumber) {
+                const config = JSON.parse(localStorage.getItem(`quickButtons_${routeId}`)) || getDefaultButtonConfig();
+                const buttonConfig = buttonNumber === 1 ? config.button1 : config.button2;
+
                 const payload = {
                     id: parseInt(routeId),
-                    def_dest: dest,
-                    def_dest_value: String(destValue)
+                    def_dest: buttonConfig.dest,
+                    def_dest_value: String(buttonConfig.destValue)
                 };
 
                 try {
                     const result = await apiRequest('inbound_route/update', 'POST', payload);
                     if (result && result.errcode === 0) {
-                        alert('Route changed successfully!');
+                        alert(`Route changed to: ${buttonConfig.label}`);
                         fetchAndRenderQuickOverride();
-                        fetchAndRenderInboundRoutes();
                     } else {
                         alert(`Failed to change route. Error: ${result ? result.errmsg : 'Unknown'}`);
                     }
                 } catch (error) {
-                    console.error('Quick change error:', error);
+                    console.error('Quick button error:', error);
                     alert('Failed to change route: ' + error.message);
                 }
             };
@@ -1074,13 +976,17 @@
                         return;
                     }
 
-                    // Strategy: Swap positions between current active and target route
-                    const currentActivePos = currentActiveRoute.pos;
-                    const targetPos = targetRoute.pos;
+                    // Strategy: Make target route have the lowest position (most priority)
+                    // Find the lowest position among all routes to ensure target becomes active
+                    const allPositions = routes.map(r => r.pos);
+                    const lowestPos = Math.min(...allPositions);
+                    const newTargetPos = lowestPos - 1; // Make target route have even higher priority
 
                     console.log('Switching routes:', {
-                        current: { name: currentActiveRoute.name, id: currentActiveRoute.id, pos: currentActivePos },
-                        target: { name: targetRoute.name, id: targetRoute.id, pos: targetPos }
+                        current: { name: currentActiveRoute.name, id: currentActiveRoute.id, pos: currentActiveRoute.pos },
+                        target: { name: targetRoute.name, id: targetRoute.id, pos: targetRoute.pos },
+                        newTargetPos: newTargetPos,
+                        allPositions: allPositions
                     });
 
                     // First, get the complete route details for both routes to preserve all settings
@@ -1097,28 +1003,12 @@
                         throw new Error('Failed to fetch target route details');
                     }
 
-                    // Update the current active route to have a higher position (preserve ALL other settings)
-                    console.log('Updating current active route position...');
-                    const currentRouteData = currentRouteDetails.data;
-                    const updateCurrentPayload = {
-                        ...currentRouteData,  // Preserve all existing settings
-                        pos: targetPos        // Only change the position
-                    };
-
-                    const updateCurrentResult = await apiRequest('inbound_route/update', 'POST', updateCurrentPayload);
-
-                    if (!updateCurrentResult || updateCurrentResult.errcode !== 0) {
-                        console.error('Failed to update current route:', updateCurrentResult);
-                        throw new Error(`Failed to update current active route position: ${updateCurrentResult ? updateCurrentResult.errmsg : 'Unknown error'}`);
-                    }
-
-                    console.log('Current route updated successfully, now updating target route...');
-
-                    // Update the target route to have the lowest position (preserve ALL other settings)
+                    // Only update the target route to have the highest priority (lowest position number)
+                    console.log('Updating target route to highest priority...');
                     const targetRouteData = targetRouteDetails.data;
                     const updateTargetPayload = {
                         ...targetRouteData,   // Preserve all existing settings
-                        pos: currentActivePos // Only change the position
+                        pos: newTargetPos     // Give it the highest priority
                     };
 
                     const updateTargetResult = await apiRequest('inbound_route/update', 'POST', updateTargetPayload);
@@ -1134,7 +1024,6 @@
 
                     // Refresh all route displays
                     fetchAndRenderRouteSwitching();
-                    fetchAndRenderInboundRoutes();
                     fetchAndRenderQuickOverride();
 
                 } catch (error) {
@@ -1310,7 +1199,6 @@
                             fetchAndRenderStats(extensionIds),
                             fetchAndRenderQuickOverride(),
                             fetchAndRenderRouteSwitching(),
-                            fetchAndRenderInboundRoutes(),
                             fetchAndRenderRecentCalls(1)
                         ]);
                     }

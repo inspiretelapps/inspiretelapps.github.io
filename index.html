@@ -363,8 +363,8 @@
                 const month = String(today.getMonth() + 1).padStart(2, '0');
                 const day = String(today.getDate()).padStart(2, '0');
 
-                const startTime = `${year}/${month}/${day} 00:00:00`;
-                const endTime = `${year}/${month}/${day} 23:59:59`;
+                const startTime = `${year}-${month}-${day} 00:00:00`;
+                const endTime = `${year}-${month}-${day} 23:59:59`;
 
                 const endpoint = `call_report/list?type=extcallstatistics&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}&ext_id_list=${extensionIds.join(',')}`;
                 
@@ -853,8 +853,11 @@
 
                     let key;
                     if (didPatterns && Array.isArray(didPatterns) && didPatterns.length > 0) {
-                        // Use the first DID pattern as the grouping key
-                        key = didPatterns[0];
+                        if (typeof didPatterns[0] === 'object' && didPatterns[0].pattern) {
+                            key = didPatterns[0].pattern;
+                        } else {
+                            key = didPatterns[0];
+                        }
                     } else if (didPatterns && typeof didPatterns === 'string') {
                         // Sometimes it might be a string instead of array
                         key = didPatterns;

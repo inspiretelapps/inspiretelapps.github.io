@@ -440,28 +440,32 @@
                                                 ext.out_calls ||
                                                 0;
 
-                        console.log(`📊 ${ext.ext_name} (${ext.ext_num}): Inbound=${inboundAnswered}, Outbound=${outboundAnswered}`);
+                        // In renderStats, update field mappings
+                        const totalCalls = ext.total_call_count || (ext.answered_calls + ext.no_answer_calls + ext.busy_calls + ext.failed_calls + ext.voicemail_calls) || 0;
+                        const totalAnsweredCalls = ext.answered_calls || 0;
+                        const totalMissedCalls = (ext.no_answer_calls || 0) + (ext.busy_calls || 0) + (ext.failed_calls || 0);
+
+                        console.log(`📊 ${ext.ext_name} (${ext.ext_num}): Total Calls=${totalCalls}, Answered=${totalAnsweredCalls}, Missed=${totalMissedCalls}`);
 
                         const row = `
                             <tr>
                                 <td>${ext.ext_name} (${ext.ext_num})</td>
-                                <td class="text-center"><strong>${inboundAnswered}/${outboundAnswered}</strong></td>
-                                <td class="text-center">${formatDuration(ext.total_talking_time || ext.talk_duration || 0)}</td>
+                                <td class="text-center"><strong>Total: ${totalCalls} (Answered: ${totalAnsweredCalls})</strong></td>
+                                <td class="text-center">${formatDuration(ext.total_talking_time || 0)}</td>
                             </tr>
                         `;
                         extensionStatsBody.innerHTML += row;
 
-                        totalAnswered += (ext.answered_calls || 0);
-                        totalDuration += (ext.total_talking_time || ext.talk_duration || 0);
-                        totalMissed += (ext.missed_calls || ext.unanswered_calls || 0);
+                        totalAnswered += totalAnsweredCalls;
+                        totalMissed += totalMissedCalls;
                     });
                 }
 
                 const overallStatsContainer = document.getElementById('overall-stats');
                 overallStatsContainer.innerHTML = `
                     <div style="padding: 1rem; background: var(--color-base-200); border-radius: 0.5rem;">
-                        <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Answered</div>
-                        <div style="font-size: 1.5rem; font-weight: 700;">${totalAnswered}</div>
+                        <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Calls</div>
+                        <div style="font-size: 1.5rem; font-weight: 700;">${totalAnswered + totalMissed}</div>  <!-- Or adjust as needed -->
                     </div>
                     <div style="padding: 1rem; background: var(--color-base-200); border-radius: 0.5rem;">
                         <div style="font-size: 0.875rem; opacity: 0.8; margin-bottom: 0.25rem;">Total Missed</div>
@@ -578,13 +582,13 @@
 
                 switch(dest) {
                     case 'extension': {
-                        const ext = extensionList.find(e => e.id == destValue);
-                        console.log('Extension lookup:', { destValue, found: ext });
-                        return ext ? `Extension ${ext.number} (${ext.display_name || ext.username || 'Unnamed'})` : `Extension ${destValue}`;
+                        const ext = extensionList.find(e => e.id == destValue || e.number === destValue || (e.display_name && e.display_name.includes(destValue)) || (e.username && e.username.includes(destValue)));
+                        console.log('Extension lookup:', { destValue, found: ext ? `${ext.id}-${ext.number}` : 'Not found' });
+                        return ext ? `Extension ${ext.number} (${ext.display_name || ext.username || ext.ext_name || 'Unnamed'})` : `Extension ${destValue}`;
                     }
                     case 'ivr': {
-                        const ivr = ivrList.find(i => i.id == destValue);
-                        console.log('IVR lookup:', { destValue, found: ivr });
+                        const ivr = ivrList.find(i => i.id == destValue || i.name === destValue || i.name.includes(destValue));
+                        console.log('IVR lookup:', { destValue, found: ivr ? ivr.name : 'Not found' });
                         return ivr ? `IVR: ${ivr.name}` : `IVR ${destValue}`;
                     }
                     case 'queue': {
@@ -1060,62 +1064,32 @@
                         throw new Error('Failed to fetch target route details');
                     }
 
-                    // Swap positions: target gets current's position, current gets target's position
-                    console.log('Swapping route positions...');
-                    const currentRouteData = currentRouteDetails.data;
-                    const targetRouteData = targetRouteDetails.data;
-                    
-                    const currentOriginalPos = currentActiveRoute.pos;
-                    const targetOriginalPos = targetRoute.pos;
-
-                    // Update target route to have the current active route's position (higher priority)
-                    const updateTargetPayload = {
-                        ...targetRouteData,      // Preserve all existing settings
-                        pos: currentOriginalPos  // Give it the current active's position
+                    // Instead of pos swap, copy target's destination to current active route
+                    const updateActivePayload = {
+                        ...currentRouteDetails.data,
+                        def_dest: targetRouteDetails.data.def_dest || targetRouteDetails.data.default_destination,
+                        def_dest_value: targetRouteDetails.data.def_dest_value || targetRouteDetails.data.default_destination_value || targetRouteDetails.data.destination_value,
+                        // If time_condition, copy business hours too
+                        business_hours_destination: targetRouteDetails.data.business_hours_destination,
+                        business_hours_destination_value: targetRouteDetails.data.business_hours_destination_value,
+                        // Preserve all other fields like DID, trunks, etc.
                     };
 
-                    // Update current active route to have the target's original position (lower priority)
-                    const updateCurrentPayload = {
-                        ...currentRouteData,     // Preserve all existing settings
-                        pos: targetOriginalPos   // Give it the target's original position
-                    };
-
-                    console.log('🔄 Updating routes:', {
-                        targetRoute: { id: targetRoute.id, name: targetRoute.name, oldPos: targetOriginalPos, newPos: currentOriginalPos },
-                        currentRoute: { id: currentActiveRoute.id, name: currentActiveRoute.name, oldPos: currentOriginalPos, newPos: targetOriginalPos }
+                    console.log('🔀 SWITCH DEBUG - Copying destination from target to active route:', {
+                        fromTarget: { dest: targetRouteDetails.data.def_dest, value: targetRouteDetails.data.def_dest_value },
+                        toActive: { id: currentActiveRoute.id, name: currentActiveRoute.name }
                     });
 
-                    console.log('📤 Target payload (first 200 chars):', JSON.stringify(updateTargetPayload).substring(0, 200));
-                    console.log('📤 Current payload (first 200 chars):', JSON.stringify(updateCurrentPayload).substring(0, 200));
+                    const updateResult = await apiRequest('inbound_route/update', 'POST', updateActivePayload);
 
-                    // Perform both updates
-                    const [updateTargetResult, updateCurrentResult] = await Promise.all([
-                        apiRequest('inbound_route/update', 'POST', updateTargetPayload),
-                        apiRequest('inbound_route/update', 'POST', updateCurrentPayload)
-                    ]);
-
-                    console.log('📥 Target route update result:', updateTargetResult);
-                    console.log('📥 Current route update result:', updateCurrentResult);
-
-                    if (!updateTargetResult || updateTargetResult.errcode !== 0) {
-                        console.error('❌ Failed to update target route:', updateTargetResult);
-                        throw new Error(`Failed to update target route position: ${updateTargetResult ? updateTargetResult.errmsg : 'Unknown error'}`);
+                    if (updateResult && updateResult.errcode === 0) {
+                        console.log('✅ Destination copied successfully!');
+                        alert(`✅ Successfully switched route ${currentActiveRoute.name} to match ${targetRoute.name}'s destination`);
+                    } else {
+                        throw new Error(`Failed to update destination: ${updateResult ? updateResult.errmsg : 'Unknown'}`);
                     }
 
-                    if (!updateCurrentResult || updateCurrentResult.errcode !== 0) {
-                        console.error('❌ Failed to update current route:', updateCurrentResult);
-                        throw new Error(`Failed to update current route position: ${updateCurrentResult ? updateCurrentResult.errmsg : 'Unknown error'}`);
-                    }
-
-                    console.log('✅ Both routes updated successfully!');
-
-                    // Verify the change
-                    const verifyResult = await apiRequest('inbound_route/list?page_size=100&sort_by=pos&order_by=asc');
-                    console.log('🔍 Verifying new positions:', verifyResult.data.map(r => ({ id: r.id, name: r.name, pos: r.pos })));
-
-                    alert(`✅ Successfully switched to route: ${targetRoute.name}\n\nCheck console for detailed verification.`);
-
-                    // Refresh all route displays
+                    // Refresh displays
                     fetchAndRenderRouteSwitching();
                     fetchAndRenderQuickOverride();
 

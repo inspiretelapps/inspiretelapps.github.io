@@ -1,0 +1,2 @@
+# Don't commit local overrides
+config.local.json

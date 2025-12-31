@@ -10,7 +10,6 @@ import {
   fetchExtensions,
   fetchIVRs,
   fetchQueues,
-  getInboundRoute,
   updateInboundRoute,
 } from '@/services/api';
 import toast from 'react-hot-toast';
@@ -114,13 +113,8 @@ export function QuickRouteOverride() {
     const buttonConfig = buttonNumber === 1 ? config.button1 : config.button2;
 
     try {
-      const routeDetails = await getInboundRoute(routeId);
-      if (!routeDetails) {
-        throw new Error('Failed to fetch route details');
-      }
-
+      // Only send the fields we want to update, not the entire route object
       const payload = {
-        ...routeDetails,
         id: routeId,
         def_dest: buttonConfig.dest,
         def_dest_value: buttonConfig.destValue,

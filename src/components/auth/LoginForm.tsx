@@ -146,7 +146,7 @@ export function LoginForm() {
             <Input
               label="PBX Host URL"
               type="text"
-              placeholder="pbx.yeastarcloud.com"
+              placeholder="pbx.yeastarcloud.com or https://your-pbx.com"
               value={formData.pbxHost}
               onChange={(e) =>
                 setFormData({ ...formData, pbxHost: e.target.value })
@@ -186,10 +186,15 @@ export function LoginForm() {
               Connect & Fetch Data
             </Button>
 
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-4">
-              Ensure the IP address of your proxy is whitelisted in your Yeastar PBX's
-              API settings.
-            </p>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-4 space-y-2">
+              <p className="font-semibold">Important:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Whitelist your proxy IP in PBX API settings</li>
+                <li>Enable API access in Advanced → API Settings</li>
+                <li>Use API username/password (not admin credentials)</li>
+                <li>Check browser console (F12) for detailed errors</li>
+              </ul>
+            </div>
           </form>
         </Card>
       </motion.div>

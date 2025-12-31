@@ -81,7 +81,12 @@ export async function apiRequest<T = any>(
   }
 
   // Build the target URL for the proxy
-  const targetUrl = `${pbxHost}/openapi/v1.0/${endpoint.split('?')[0]}`;
+  // Ensure pbxHost has protocol
+  const normalizedHost = pbxHost.startsWith('http://') || pbxHost.startsWith('https://')
+    ? pbxHost
+    : `https://${pbxHost}`;
+
+  const targetUrl = `${normalizedHost}/openapi/v1.0/${endpoint.split('?')[0]}`;
   const params = new URLSearchParams(endpoint.split('?')[1] || '');
   if (accessToken) {
     params.append('access_token', accessToken);
@@ -147,8 +152,16 @@ export async function getAccessToken(
   clientSecret: string,
   proxyUrlParam: string
 ): Promise<string> {
-  const targetUrl = `${host}/openapi/v1.0/get_token`;
+  // Ensure host has protocol
+  const normalizedHost = host.startsWith('http://') || host.startsWith('https://')
+    ? host
+    : `https://${host}`;
+
+  const targetUrl = `${normalizedHost}/openapi/v1.0/get_token`;
   const url = `${proxyUrlParam}/api/proxy/${targetUrl}`;
+
+  console.log('Authentication request URL:', url);
+  console.log('Target PBX URL:', targetUrl);
 
   try {
     const response = await fetch(url, {
@@ -167,23 +180,31 @@ export async function getAccessToken(
     const responseText = await response.text();
     let data: ApiResponse;
 
+    console.log('Response status:', response.status);
+    console.log('Response text:', responseText.substring(0, 500));
+
     try {
       data = JSON.parse(responseText);
     } catch (e) {
       console.error('Auth parse error:', responseText.substring(0, 200));
       throw new Error(
-        'Proxy/PBX returned invalid response. Check proxy configuration.'
+        'Proxy/PBX returned invalid response. Check proxy configuration and ensure CORS is enabled.'
       );
     }
 
     if (data.errcode === 0 && data.access_token) {
       sessionStorage.setItem('yeastar_accessToken', data.access_token);
       accessToken = data.access_token;
+      console.log('Authentication successful');
       return data.access_token;
     } else {
-      throw new Error(
-        `Auth failed: Error ${data.errcode}: ${data.errmsg || 'Unknown'}`
-      );
+      const errorMsg = `Auth failed: Error ${data.errcode}: ${data.errmsg || 'Unknown error'}`;
+      console.error(errorMsg);
+      console.error('Common errors:');
+      console.error('- Error 10003: Invalid username/password');
+      console.error('- Error 10004: Token expired');
+      console.error('- Error 10005: IP not whitelisted');
+      throw new Error(errorMsg);
     }
   } catch (error) {
     console.error('Error getting access token:', error);

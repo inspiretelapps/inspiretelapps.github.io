@@ -6,6 +6,9 @@ import type {
   IVR,
   Queue,
   InboundRoute,
+  ExtensionStatus,
+  QueueStatus,
+  ActiveCall,
 } from '@/types';
 
 // Simple cache implementation
@@ -342,6 +345,150 @@ export async function updateInboundRoute(
   route: Partial<InboundRoute> & { id: number }
 ): Promise<boolean> {
   const result = await apiRequest('inbound_route/update', 'POST', route);
+  return result?.errcode === 0;
+}
+
+/**
+ * Query extension status (call status)
+ */
+export async function fetchExtensionStatus(
+  extensionIds?: string[]
+): Promise<ExtensionStatus[]> {
+  let endpoint = 'extension/query_call?page_size=1000';
+  if (extensionIds && extensionIds.length > 0) {
+    endpoint += `&ext_id_list=${extensionIds.join(',')}`;
+  }
+
+  const result = await apiRequest<any>(endpoint);
+
+  if (result && result.errcode === 0 && result.data) {
+    // Map API response to our ExtensionStatus interface
+    return result.data.map((ext: any) => ({
+      ext_id: ext.id || ext.ext_id,
+      ext_num: ext.number || ext.ext_num,
+      status: mapCallStatusToStatus(ext.call_status || ext.status),
+      call_status: ext.call_status,
+    }));
+  }
+  return [];
+}
+
+function mapCallStatusToStatus(callStatus: string): 'idle' | 'ringing' | 'busy' | 'unavailable' {
+  switch (callStatus?.toLowerCase()) {
+    case 'idle':
+      return 'idle';
+    case 'ringing':
+      return 'ringing';
+    case 'talking':
+    case 'busy':
+      return 'busy';
+    default:
+      return 'unavailable';
+  }
+}
+
+/**
+ * Query queue status
+ */
+export async function fetchQueueStatus(
+  queueId?: string
+): Promise<QueueStatus[]> {
+  let endpoint = 'queue/query';
+  if (queueId) {
+    endpoint += `?queue_id=${queueId}`;
+  }
+
+  const result = await apiRequest<any>(endpoint);
+
+  if (result && result.errcode === 0) {
+    const queues = result.data || [];
+    return queues.map((q: any) => ({
+      queue_id: q.id || q.queue_id,
+      queue_name: q.name || q.queue_name,
+      waiting_count: q.waiting_count || 0,
+      active_count: q.active_count || 0,
+      agents: (q.agents || []).map((agent: any) => ({
+        agent_id: agent.id || agent.agent_id,
+        agent_num: agent.number || agent.agent_num,
+        agent_name: agent.name || agent.agent_name,
+        status: agent.status || 'unavailable',
+        paused: agent.paused || false,
+      })),
+    }));
+  }
+  return [];
+}
+
+/**
+ * Query active calls
+ */
+export async function fetchActiveCalls(): Promise<ActiveCall[]> {
+  const result = await apiRequest<any>('call/query?page_size=1000');
+
+  if (result && result.errcode === 0 && result.data) {
+    return result.data.map((call: any) => ({
+      call_id: call.id || call.call_id,
+      channel_id: call.channel_id || call.channelid,
+      call_from: call.from || call.call_from,
+      call_to: call.to || call.call_to,
+      status: call.status || 'talking',
+      duration: call.duration || 0,
+      call_type: call.call_type || call.type || 'Internal',
+    }));
+  }
+  return [];
+}
+
+/**
+ * Hangup a call
+ */
+export async function hangupCall(channelId: string): Promise<boolean> {
+  const result = await apiRequest('call/hangup', 'POST', {
+    channelid: channelId,
+  });
+  return result?.errcode === 0;
+}
+
+/**
+ * Transfer a call (blind transfer)
+ */
+export async function transferCall(
+  channelId: string,
+  destination: string
+): Promise<boolean> {
+  const result = await apiRequest('call/transfer', 'POST', {
+    channelid: channelId,
+    destination: destination,
+  });
+  return result?.errcode === 0;
+}
+
+/**
+ * Park a call
+ */
+export async function parkCall(
+  channelId: string,
+  parkingLot?: string
+): Promise<boolean> {
+  const result = await apiRequest('call/park', 'POST', {
+    channelid: channelId,
+    parking_lot: parkingLot,
+  });
+  return result?.errcode === 0;
+}
+
+/**
+ * Monitor a call (listen, whisper, barge-in)
+ */
+export async function monitorCall(
+  extensionNum: string,
+  targetChannelId: string,
+  mode: 'listen' | 'whisper' | 'barge'
+): Promise<boolean> {
+  const result = await apiRequest(`extension/${mode}`, 'POST', {
+    ext_num: extensionNum,
+    channelid: targetChannelId,
+  });
   return result?.errcode === 0;
 }
 

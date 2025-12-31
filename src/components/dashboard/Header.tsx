@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { Moon, Sun, LogOut } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { Button } from '@/components/ui/Button';
+import { NotificationCenter } from '@/components/dashboard/NotificationCenter';
 
 export function Header() {
   const { theme, toggleTheme, logout } = useStore();
@@ -28,6 +29,9 @@ export function Header() {
         </motion.h1>
 
         <div className="flex items-center gap-3">
+          {/* Notification Center */}
+          <NotificationCenter />
+
           {/* Theme Toggle */}
           <motion.button
             whileHover={{ scale: 1.05 }}

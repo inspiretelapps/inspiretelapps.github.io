@@ -4,9 +4,9 @@ This directory contains the Model Context Protocol (MCP) server configuration fo
 
 ## Configured MCP Servers
 
-### Exa (Web Search & Code Context)
+### 1. Exa (Web Search & Code Context)
 
-**Status**: HTTP-based (works in cloud and local)
+**Status**: ✅ HTTP-based (works in cloud and local)
 
 **Features**:
 - Advanced web search with AI-powered relevance
@@ -30,15 +30,40 @@ This directory contains the Model Context Protocol (MCP) server configuration fo
 
 4. The MCP server will automatically be available in Claude Code (both web and desktop)
 
-## Available Tools
-
-Once configured, you'll have access to:
-
+**Available Tools**:
 - `web_search_exa` - Enhanced web search
 - `get_code_context_exa` - Search code across GitHub
 - `deep_researcher_start` - Deep research functionality
 - `company_research_exa` - Research companies
 - `linkedin_search_exa` - LinkedIn profile search
+
+---
+
+### 2. Ref (Reference Documentation & Code Examples)
+
+**Status**: ✅ HTTP-based (works in cloud and local)
+
+**Features**:
+- Quick access to API documentation
+- Code examples and snippets
+- Technical reference lookup
+- Programming language references
+- Framework documentation
+
+**Setup**:
+✅ Already configured! No additional setup needed.
+
+**Available Tools**:
+- Reference documentation lookup
+- API documentation search
+- Code example retrieval
+- Technical guides access
+
+---
+
+## Combined Tool Access
+
+With both MCP servers configured, you now have access to:
 
 ## Troubleshooting
 
@@ -49,12 +74,17 @@ Once configured, you'll have access to:
 3. Restart Claude Code session
 4. Check the MCP status with `/mcp` command
 
-**Testing the connection:**
+**Testing the connections:**
 
-In Claude Code, ask:
-> "Can you search the web for the latest React 19 features using Exa?"
+In Claude Code, try these:
 
-If the search works, your MCP server is connected!
+**Exa Search:**
+> "Search the web for the latest React 19 features using Exa"
+
+**Ref Documentation:**
+> "Look up the Ref documentation for TypeScript async/await patterns"
+
+If both work, your MCP servers are connected! ✅
 
 ## Adding More MCP Servers
 

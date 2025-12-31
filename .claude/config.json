@@ -6,6 +6,10 @@
       "headers": {
         "X-API-Key": "${EXA_API_KEY}"
       }
+    },
+    "ref": {
+      "type": "http",
+      "url": "https://api.ref.tools/mcp?apiKey=ref-05c9365042d394ea6430"
     }
   }
 }

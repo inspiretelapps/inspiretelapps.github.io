@@ -6,7 +6,6 @@ import { Loader } from '@/components/ui/Loader';
 import { useStore } from '@/store/useStore';
 import { fetchCallStats, fetchExtensions } from '@/services/api';
 import { formatDuration, getTodayRange } from '@/utils/helpers';
-import { escapeHtml } from '@/utils/security';
 import toast from 'react-hot-toast';
 
 export function TodayStats() {
@@ -204,7 +203,7 @@ export function TodayStats() {
                       className="hover:bg-gray-50 dark:hover:bg-gray-700/50"
                     >
                       <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                        {escapeHtml(stat.ext_name)} ({escapeHtml(stat.ext_num)})
+                        {stat.ext_name} ({stat.ext_num})
                       </td>
                       <td className="px-4 py-3 text-center text-sm font-semibold text-gray-900 dark:text-white">
                         {totalCalls}

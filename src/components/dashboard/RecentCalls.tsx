@@ -8,7 +8,6 @@ import { Loader } from '@/components/ui/Loader';
 import { useStore } from '@/store/useStore';
 import { fetchCDR } from '@/services/api';
 import { formatDuration } from '@/utils/helpers';
-import { escapeHtml } from '@/utils/security';
 import toast from 'react-hot-toast';
 
 export function RecentCalls() {
@@ -103,10 +102,10 @@ export function RecentCalls() {
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                      {escapeHtml(call.call_from)} → {escapeHtml(call.call_to)}
+                      {call.call_from} → {call.call_to}
                     </p>
                     <p className="text-xs text-gray-600 dark:text-gray-400">
-                      {escapeHtml(call.time)} • {escapeHtml(call.disposition)} •{' '}
+                      {call.time} • {call.disposition} •{' '}
                       {formatDuration(call.talk_duration)}
                     </p>
                   </div>

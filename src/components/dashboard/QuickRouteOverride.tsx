@@ -13,7 +13,6 @@ import {
   getInboundRoute,
   updateInboundRoute,
 } from '@/services/api';
-import { escapeHtml } from '@/utils/security';
 import toast from 'react-hot-toast';
 import type { InboundRoute, QuickButtonConfig } from '@/types';
 
@@ -197,7 +196,7 @@ export function QuickRouteOverride() {
               <div className="flex justify-between items-center mb-3">
                 <div>
                   <h4 className="font-semibold text-gray-900 dark:text-white">
-                    {escapeHtml(route.name)}
+                    {route.name}
                   </h4>
                   <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                     Currently: {getCurrentDestinationName(route)}

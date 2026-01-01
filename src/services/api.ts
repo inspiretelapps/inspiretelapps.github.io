@@ -9,6 +9,11 @@ import type {
   ExtensionStatus,
   QueueStatus,
   ActiveCall,
+  YeastarContact,
+  YeastarPhonebook,
+  CompanyContactsApiResponse,
+  PhonebooksApiResponse,
+  DialCallApiResponse,
 } from '@/types';
 
 export class ApiError extends Error {
@@ -847,4 +852,180 @@ export async function monitorCall(
  */
 export function clearApiCache(): void {
   apiCache.clear();
+}
+
+// ============================================
+// CMS API Functions
+// ============================================
+
+/**
+ * Fetch all company contacts from Yeastar
+ */
+export async function fetchCompanyContacts(
+  page: number = 1,
+  pageSize: number = 10000
+): Promise<{ data: YeastarContact[]; totalNumber: number; hasMore: boolean }> {
+  const endpoint = `company_contact/list?page=${page}&page_size=${pageSize}`;
+  const result = await apiRequest<YeastarContact[]>(endpoint) as CompanyContactsApiResponse;
+
+  if (result && result.errcode === 0 && result.data) {
+    const totalNumber = result.total_number || result.data.length;
+    return {
+      data: result.data,
+      totalNumber,
+      hasMore: page * pageSize < totalNumber,
+    };
+  }
+
+  return { data: [], totalNumber: 0, hasMore: false };
+}
+
+/**
+ * Search company contacts
+ */
+export async function searchCompanyContacts(
+  query: string,
+  page: number = 1,
+  pageSize: number = 100
+): Promise<{ data: YeastarContact[]; totalNumber: number }> {
+  const endpoint = `company_contact/search?keyword=${encodeURIComponent(query)}&page=${page}&page_size=${pageSize}`;
+  const result = await apiRequest<YeastarContact[]>(endpoint) as CompanyContactsApiResponse;
+
+  if (result && result.errcode === 0 && result.data) {
+    return {
+      data: result.data,
+      totalNumber: result.total_number || result.data.length,
+    };
+  }
+
+  return { data: [], totalNumber: 0 };
+}
+
+/**
+ * Get a specific company contact by ID
+ */
+export async function getCompanyContact(id: number): Promise<YeastarContact | null> {
+  const result = await apiRequest<YeastarContact>(`company_contact/get?id=${id}`);
+
+  if (result && result.errcode === 0 && result.data) {
+    return result.data;
+  }
+
+  return null;
+}
+
+/**
+ * Create a new company contact in Yeastar
+ */
+export async function createCompanyContact(contact: {
+  contact_name: string;
+  company?: string;
+  email?: string;
+  business?: string;
+  business2?: string;
+  mobile?: string;
+  mobile2?: string;
+  home?: string;
+  home2?: string;
+  business_fax?: string;
+  home_fax?: string;
+  other?: string;
+  remark?: string;
+}): Promise<{ success: boolean; id?: number }> {
+  const result = await apiRequest<{ id: number }>('company_contact/create', 'POST', contact);
+
+  if (result && result.errcode === 0) {
+    return { success: true, id: result.data?.id };
+  }
+
+  return { success: false };
+}
+
+/**
+ * Update an existing company contact in Yeastar
+ */
+export async function updateCompanyContact(
+  id: number,
+  contact: Partial<{
+    contact_name: string;
+    company: string;
+    email: string;
+    business: string;
+    business2: string;
+    mobile: string;
+    mobile2: string;
+    home: string;
+    home2: string;
+    business_fax: string;
+    home_fax: string;
+    other: string;
+    remark: string;
+  }>
+): Promise<boolean> {
+  const result = await apiRequest('company_contact/update', 'POST', { id, ...contact });
+  return result?.errcode === 0;
+}
+
+/**
+ * Delete a company contact from Yeastar
+ */
+export async function deleteCompanyContact(id: number): Promise<boolean> {
+  const result = await apiRequest(`company_contact/delete?id=${id}`, 'GET');
+  return result?.errcode === 0;
+}
+
+/**
+ * Fetch all phonebooks from Yeastar
+ */
+export async function fetchPhonebooks(
+  page: number = 1,
+  pageSize: number = 100
+): Promise<YeastarPhonebook[]> {
+  const endpoint = `phonebook/list?page=${page}&page_size=${pageSize}`;
+  const result = await apiRequest<YeastarPhonebook[]>(endpoint) as PhonebooksApiResponse;
+
+  if (result && result.errcode === 0 && result.data) {
+    return result.data;
+  }
+
+  return [];
+}
+
+/**
+ * Make a call (Click2Call)
+ * @param caller - Extension number that will make the call
+ * @param callee - Destination number to call
+ * @param options - Optional settings
+ */
+export async function dialCall(
+  caller: string,
+  callee: string,
+  options?: {
+    dialPermission?: string;
+    autoAnswer?: boolean;
+  }
+): Promise<{ success: boolean; callId?: string }> {
+  const body: Record<string, string> = {
+    caller,
+    callee,
+  };
+
+  if (options?.dialPermission) {
+    body.dial_permission = options.dialPermission;
+  }
+
+  if (options?.autoAnswer !== undefined) {
+    body.auto_answer = options.autoAnswer ? 'yes' : 'no';
+  }
+
+  const result = await apiRequest<DialCallApiResponse>('call/dial', 'POST', body);
+
+  if (result && result.errcode === 0) {
+    return {
+      success: true,
+      callId: (result as any).call_id || result.data?.call_id,
+    };
+  }
+
+  return { success: false };
 }

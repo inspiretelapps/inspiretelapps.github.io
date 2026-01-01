@@ -8,6 +8,11 @@ import type {
   InboundRoute,
   Theme,
   YeastarConfig,
+  Contact,
+  Company,
+  ContactNote,
+  AppView,
+  CMSSyncState,
 } from '@/types';
 
 interface AppState {
@@ -45,6 +50,42 @@ interface AppState {
     routes: boolean;
   };
   setLoading: (key: keyof AppState['loading'], value: boolean) => void;
+
+  // CMS State
+  currentView: AppView;
+  setCurrentView: (view: AppView) => void;
+  callerExtension: string | null;
+  setCallerExtension: (ext: string | null) => void;
+
+  // CMS Data
+  contacts: Contact[];
+  companies: Company[];
+  contactNotes: ContactNote[];
+  cmsSyncState: CMSSyncState;
+
+  setContacts: (contacts: Contact[]) => void;
+  addContact: (contact: Contact) => void;
+  updateContact: (id: string, updates: Partial<Contact>) => void;
+  deleteContact: (id: string) => void;
+
+  setCompanies: (companies: Company[]) => void;
+  addCompany: (company: Company) => void;
+  updateCompany: (id: string, updates: Partial<Company>) => void;
+  deleteCompany: (id: string) => void;
+
+  setContactNotes: (notes: ContactNote[]) => void;
+  addContactNote: (note: ContactNote) => void;
+  deleteContactNote: (id: string) => void;
+
+  setCmsSyncState: (state: Partial<CMSSyncState>) => void;
+
+  // CMS Loading states
+  cmsLoading: {
+    contacts: boolean;
+    companies: boolean;
+    sync: boolean;
+  };
+  setCmsLoading: (key: keyof AppState['cmsLoading'], value: boolean) => void;
 }
 
 const getStoredTheme = (): Theme => {
@@ -117,5 +158,72 @@ export const useStore = create<AppState>((set) => ({
   setLoading: (key, value) =>
     set((state) => ({
       loading: { ...state.loading, [key]: value },
+    })),
+
+  // CMS State
+  currentView: 'dashboard',
+  setCurrentView: (view) => set({ currentView: view }),
+  callerExtension: null,
+  setCallerExtension: (ext) => set({ callerExtension: ext }),
+
+  // CMS Data
+  contacts: [],
+  companies: [],
+  contactNotes: [],
+  cmsSyncState: {
+    lastYeastarSync: null,
+    inProgress: false,
+  },
+
+  setContacts: (contacts) => set({ contacts }),
+  addContact: (contact) =>
+    set((state) => ({ contacts: [...state.contacts, contact] })),
+  updateContact: (id, updates) =>
+    set((state) => ({
+      contacts: state.contacts.map((c) =>
+        c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
+      ),
+    })),
+  deleteContact: (id) =>
+    set((state) => ({
+      contacts: state.contacts.filter((c) => c.id !== id),
+    })),
+
+  setCompanies: (companies) => set({ companies }),
+  addCompany: (company) =>
+    set((state) => ({ companies: [...state.companies, company] })),
+  updateCompany: (id, updates) =>
+    set((state) => ({
+      companies: state.companies.map((c) =>
+        c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c
+      ),
+    })),
+  deleteCompany: (id) =>
+    set((state) => ({
+      companies: state.companies.filter((c) => c.id !== id),
+    })),
+
+  setContactNotes: (notes) => set({ contactNotes: notes }),
+  addContactNote: (note) =>
+    set((state) => ({ contactNotes: [...state.contactNotes, note] })),
+  deleteContactNote: (id) =>
+    set((state) => ({
+      contactNotes: state.contactNotes.filter((n) => n.id !== id),
+    })),
+
+  setCmsSyncState: (syncState) =>
+    set((state) => ({
+      cmsSyncState: { ...state.cmsSyncState, ...syncState },
+    })),
+
+  // CMS Loading states
+  cmsLoading: {
+    contacts: false,
+    companies: false,
+    sync: false,
+  },
+  setCmsLoading: (key, value) =>
+    set((state) => ({
+      cmsLoading: { ...state.cmsLoading, [key]: value },
     })),
 }));

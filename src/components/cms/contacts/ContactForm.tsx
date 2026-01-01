@@ -104,6 +104,10 @@ export function ContactForm({ contact, onClose }: ContactFormProps) {
         const fullContact = { ...contact, ...updatedContact } as Contact;
         const yeastarData = contactToYeastarFormat(fullContact);
 
+        console.log('DEBUG: Syncing contact to Yeastar');
+        console.log('DEBUG: fullContact.phones:', JSON.stringify(fullContact.phones, null, 2));
+        console.log('DEBUG: yeastarData:', JSON.stringify(yeastarData, null, 2));
+
         if (contact.yeastarContactId) {
           // Update existing Yeastar contact
           const success = await updateCompanyContact(contact.yeastarContactId, yeastarData);

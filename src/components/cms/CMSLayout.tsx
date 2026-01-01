@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import {
@@ -9,16 +9,20 @@ import {
 import { ContactsList } from './contacts/ContactsList';
 import { CompaniesList } from './companies/CompaniesList';
 import { fetchCompanyContacts } from '@/services/api';
-import { yeastarContactToContact } from '@/utils/phoneUtils';
+import { yeastarContactToContact, generateId } from '@/utils/phoneUtils';
+import type { Company } from '@/types';
 import toast from 'react-hot-toast';
 
 type CMSTab = 'contacts' | 'companies';
 
 export function CMSLayout() {
   const [activeTab, setActiveTab] = useState<CMSTab>('contacts');
+  const [isPending, startTransition] = useTransition();
   const {
     contacts,
     setContacts,
+    companies,
+    setCompanies,
     setCmsLoading,
     cmsLoading,
     cmsSyncState,
@@ -45,13 +49,60 @@ export function CMSLayout() {
           ...manualContacts,
         ];
 
-        setContacts(mergedContacts);
+        // Extract unique companies from contacts
+        const companyNames = new Set<string>();
+        mergedContacts.forEach((contact) => {
+          if (contact.company?.trim()) {
+            companyNames.add(contact.company.trim());
+          }
+        });
+
+        // Create/update companies list, preserving existing company data
+        const existingCompanyMap = new Map(companies.map((c) => [c.name.toLowerCase(), c]));
+        const now = new Date().toISOString();
+        const updatedCompanies: Company[] = [];
+
+        // Build a map from company name to company ID
+        const companyNameToId = new Map<string, string>();
+
+        companyNames.forEach((name) => {
+          const existing = existingCompanyMap.get(name.toLowerCase());
+          if (existing) {
+            updatedCompanies.push(existing);
+            companyNameToId.set(name.toLowerCase(), existing.id);
+          } else {
+            const newCompany: Company = {
+              id: generateId(),
+              name,
+              phonePatterns: [],
+              createdAt: now,
+              updatedAt: now,
+            };
+            updatedCompanies.push(newCompany);
+            companyNameToId.set(name.toLowerCase(), newCompany.id);
+          }
+        });
+
+        // Link contacts to their companies via companyId
+        const linkedContacts = mergedContacts.map((contact) => {
+          if (contact.company?.trim()) {
+            const companyId = companyNameToId.get(contact.company.trim().toLowerCase());
+            if (companyId) {
+              return { ...contact, companyId };
+            }
+          }
+          return contact;
+        });
+
+        setContacts(linkedContacts);
+        setCompanies(updatedCompanies);
+
         setCmsSyncState({
           lastYeastarSync: new Date().toISOString(),
           inProgress: false,
         });
 
-        toast.success(`Synced ${result.data.length} contacts from Yeastar`);
+        toast.success(`Synced ${result.data.length} contacts and ${updatedCompanies.length} companies from Yeastar`);
       } else {
         toast.success('No contacts found in Yeastar');
         setCmsSyncState({
@@ -118,7 +169,7 @@ export function CMSLayout() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => startTransition(() => setActiveTab(tab.id))}
                 className={`
                   flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors
                   ${isActive
@@ -152,8 +203,9 @@ export function CMSLayout() {
       <motion.div
         key={activeTab}
         initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        animate={{ opacity: isPending ? 0.6 : 1, y: 0 }}
         transition={{ duration: 0.2 }}
+        className={isPending ? 'pointer-events-none' : ''}
       >
         {activeTab === 'contacts' && <ContactsList />}
         {activeTab === 'companies' && <CompaniesList />}

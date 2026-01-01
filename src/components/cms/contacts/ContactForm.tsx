@@ -100,17 +100,29 @@ export function ContactForm({ contact, onClose }: ContactFormProps) {
           syncStatus: 'pending',
         };
 
-        // If synced from Yeastar, update on Yeastar too
-        if (contact.source === 'yeastar' && contact.yeastarContactId) {
-          const yeastarData = contactToYeastarFormat({ ...contact, ...updatedContact } as Contact);
+        // Always sync to Yeastar (two-way sync)
+        const fullContact = { ...contact, ...updatedContact } as Contact;
+        const yeastarData = contactToYeastarFormat(fullContact);
+
+        if (contact.yeastarContactId) {
+          // Update existing Yeastar contact
           const success = await updateCompanyContact(contact.yeastarContactId, yeastarData);
           if (success) {
+            updatedContact.syncStatus = 'synced';
+            updatedContact.source = 'yeastar';
+          }
+        } else {
+          // Create new Yeastar contact for manual contacts being synced
+          const result = await createCompanyContact(yeastarData as any);
+          if (result.success && result.id) {
+            updatedContact.yeastarContactId = result.id;
+            updatedContact.source = 'yeastar';
             updatedContact.syncStatus = 'synced';
           }
         }
 
         updateContact(contact.id, updatedContact);
-        toast.success('Contact updated');
+        toast.success('Contact updated and synced to Yeastar');
       } else {
         // Create new contact
         const newContact: Contact = {
@@ -137,7 +149,7 @@ export function ContactForm({ contact, onClose }: ContactFormProps) {
         }
 
         addContact(newContact);
-        toast.success('Contact created');
+        toast.success(newContact.syncStatus === 'synced' ? 'Contact created and synced to Yeastar' : 'Contact created (sync pending)');
       }
 
       onClose();

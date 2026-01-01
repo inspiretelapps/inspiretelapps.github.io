@@ -37,12 +37,15 @@ interface ContactCall extends CallRecord {
   wasAnswered: boolean;
 }
 
+type CallFilter = 'all' | 'received' | 'made' | 'missed';
+
 export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) {
   const { deleteContact } = useStore();
   const [isDeleting, setIsDeleting] = useState(false);
   const [callStats, setCallStats] = useState<CallStats>({ inbound: 0, outbound: 0, missed: 0 });
   const [recentCalls, setRecentCalls] = useState<ContactCall[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
+  const [callFilter, setCallFilter] = useState<CallFilter>('all');
 
   // Fetch call statistics and CDR for this contact's phone numbers
   useEffect(() => {
@@ -165,6 +168,20 @@ export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) 
     return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
   };
 
+  // Toggle filter on stat card click
+  const toggleFilter = (filter: CallFilter) => {
+    setCallFilter((prev) => (prev === filter ? 'all' : filter));
+  };
+
+  // Filter calls based on selected filter
+  const filteredCalls = recentCalls.filter((call) => {
+    if (callFilter === 'all') return true;
+    if (callFilter === 'received') return call.direction === 'inbound' && call.wasAnswered;
+    if (callFilter === 'made') return call.direction === 'outbound' && call.wasAnswered;
+    if (callFilter === 'missed') return !call.wasAnswered;
+    return true;
+  });
+
   const handleDelete = async () => {
     if (!confirm(`Are you sure you want to delete "${contact.name}"?`)) {
       return;
@@ -259,21 +276,42 @@ export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) 
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-3">
-                <div className="flex flex-col items-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                <button
+                  onClick={() => toggleFilter('received')}
+                  className={`flex flex-col items-center p-3 rounded-lg transition-all ${
+                    callFilter === 'received'
+                      ? 'bg-green-200 dark:bg-green-800/50 ring-2 ring-green-500'
+                      : 'bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30'
+                  }`}
+                >
                   <PhoneIncoming className="w-5 h-5 text-green-600 dark:text-green-400 mb-1" />
                   <span className="text-lg font-semibold text-green-700 dark:text-green-300">{callStats.inbound}</span>
                   <span className="text-xs text-green-600 dark:text-green-400">Received</span>
-                </div>
-                <div className="flex flex-col items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                </button>
+                <button
+                  onClick={() => toggleFilter('made')}
+                  className={`flex flex-col items-center p-3 rounded-lg transition-all ${
+                    callFilter === 'made'
+                      ? 'bg-blue-200 dark:bg-blue-800/50 ring-2 ring-blue-500'
+                      : 'bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30'
+                  }`}
+                >
                   <PhoneOutgoing className="w-5 h-5 text-blue-600 dark:text-blue-400 mb-1" />
                   <span className="text-lg font-semibold text-blue-700 dark:text-blue-300">{callStats.outbound}</span>
                   <span className="text-xs text-blue-600 dark:text-blue-400">Made</span>
-                </div>
-                <div className="flex flex-col items-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                </button>
+                <button
+                  onClick={() => toggleFilter('missed')}
+                  className={`flex flex-col items-center p-3 rounded-lg transition-all ${
+                    callFilter === 'missed'
+                      ? 'bg-red-200 dark:bg-red-800/50 ring-2 ring-red-500'
+                      : 'bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30'
+                  }`}
+                >
                   <PhoneMissed className="w-5 h-5 text-red-600 dark:text-red-400 mb-1" />
                   <span className="text-lg font-semibold text-red-700 dark:text-red-300">{callStats.missed}</span>
                   <span className="text-xs text-red-600 dark:text-red-400">Missed</span>
-                </div>
+                </button>
               </div>
             )}
           </div>
@@ -281,11 +319,30 @@ export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) 
           {/* Recent Call History */}
           {!loadingStats && recentCalls.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
-                Recent Calls
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                  {callFilter === 'all' ? 'Recent Calls' :
+                   callFilter === 'received' ? 'Received Calls' :
+                   callFilter === 'made' ? 'Made Calls' : 'Missed Calls'}
+                  {callFilter !== 'all' && (
+                    <span className="ml-2 text-gray-400">({filteredCalls.length})</span>
+                  )}
+                </h3>
+                {callFilter !== 'all' && (
+                  <button
+                    onClick={() => setCallFilter('all')}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    Show all
+                  </button>
+                )}
+              </div>
               <div className="space-y-2 max-h-48 overflow-y-auto">
-                {recentCalls.map((call, index) => (
+                {filteredCalls.length === 0 ? (
+                  <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
+                    No {callFilter === 'received' ? 'received' : callFilter === 'made' ? 'made' : 'missed'} calls
+                  </p>
+                ) : filteredCalls.map((call, index) => (
                   <div
                     key={index}
                     className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm"

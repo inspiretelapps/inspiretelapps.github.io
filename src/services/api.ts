@@ -459,6 +459,8 @@ export async function fetchCDR(
 
   if (hasFilters && filters) {
     const params = new URLSearchParams();
+    params.append('page', String(page));
+    params.append('page_size', String(pageSize));
     if (filters.startTime) params.append('start_time', filters.startTime);
     if (filters.endTime) params.append('end_time', filters.endTime);
     if (filters.disposition) params.append('status', filters.disposition);

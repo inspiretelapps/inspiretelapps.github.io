@@ -25,22 +25,27 @@ function App() {
   }, [theme]);
 
   const handleRefreshExtensions = () => {
-    // Trigger refresh for extension status
-    window.location.reload();
+    // Components already auto-refresh every 5 seconds
+    // Just show the toast notification
+    return Promise.resolve();
   };
 
   const handleRefreshQueues = () => {
-    // Trigger refresh for queue monitor
-    window.location.reload();
+    // Components already auto-refresh every 3-5 seconds
+    // Just show the toast notification
+    return Promise.resolve();
   };
 
   const handleRefreshCalls = () => {
-    // Trigger refresh for active calls
-    window.location.reload();
+    // Components already auto-refresh every 5 seconds
+    // Just show the toast notification
+    return Promise.resolve();
   };
 
   const handleRefreshAll = () => {
-    window.location.reload();
+    // All components already auto-refresh
+    // Just show the toast notification
+    return Promise.resolve();
   };
 
   if (!isAuthenticated) {

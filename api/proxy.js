@@ -89,8 +89,9 @@ export async function proxyHandler(req, res) {
     // Build the target URL
     const targetUrl = `https://${targetPath}`;
 
-    // Validate the target URL against whitelist
-    if (!isValidUrl(targetUrl, ALLOWED_DOMAINS)) {
+    // Validate the target URL against whitelist unless explicitly disabled
+    const allowAllDomains = process.env.ALLOW_ALL_DOMAINS === 'true';
+    if (!allowAllDomains && !isValidUrl(targetUrl, ALLOWED_DOMAINS)) {
       console.error(`Blocked request to unauthorized domain: ${targetUrl}`);
       res.status(403).json({
         error: 'Forbidden',

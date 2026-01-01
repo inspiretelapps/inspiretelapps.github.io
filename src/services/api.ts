@@ -11,6 +11,30 @@ import type {
   ActiveCall,
 } from '@/types';
 
+export class ApiError extends Error {
+  errcode: number;
+  endpoint: string;
+  status: number;
+
+  constructor(errcode: number, errmsg: string, endpoint: string, status: number) {
+    super(`API Error ${errcode} (${endpoint}): ${errmsg}`);
+    this.name = 'ApiError';
+    this.errcode = errcode;
+    this.endpoint = endpoint;
+    this.status = status;
+  }
+}
+
+function sanitizeUrl(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    urlObj.searchParams.delete('access_token');
+    return urlObj.toString();
+  } catch {
+    return url;
+  }
+}
+
 // Simple cache implementation
 interface CacheEntry<T> {
   data: T;
@@ -43,6 +67,50 @@ class ApiCache {
 }
 
 const apiCache = new ApiCache();
+
+const CALL_QUERY_TYPES = ['inbound', 'outbound', 'internal'] as const;
+type CallQueryType = (typeof CALL_QUERY_TYPES)[number];
+
+function mapMemberStatusToExtensionState(
+  status?: string
+): 'ringing' | 'busy' | null {
+  const normalized = status?.toLowerCase() || '';
+  if (normalized.includes('ring') || normalized.includes('alert')) return 'ringing';
+  if (normalized.includes('answer') || normalized.includes('talk') || normalized.includes('hold')) {
+    return 'busy';
+  }
+  return null;
+}
+
+function mapMemberStatusToCallState(
+  status?: string
+): 'ringing' | 'talking' | 'hold' | null {
+  const normalized = status?.toLowerCase() || '';
+  if (normalized.includes('hold')) return 'hold';
+  if (normalized.includes('ring') || normalized.includes('alert')) return 'ringing';
+  if (normalized.includes('answer') || normalized.includes('talk')) return 'talking';
+  return null;
+}
+
+function isExtensionOnline(onlineStatus?: Record<string, { status?: number }>): boolean {
+  if (!onlineStatus || typeof onlineStatus !== 'object') return true;
+  return Object.values(onlineStatus).some((device) => device?.status === 1);
+}
+
+function normalizeNumber(value: unknown): string {
+  return value === null || value === undefined ? '' : String(value).trim();
+}
+
+function mapCallType(type: CallQueryType): ActiveCall['call_type'] {
+  switch (type) {
+    case 'inbound':
+      return 'Inbound';
+    case 'outbound':
+      return 'Outbound';
+    default:
+      return 'Internal';
+  }
+}
 
 let accessToken: string | null = sessionStorage.getItem('yeastar_accessToken');
 let pbxHost = '';
@@ -91,6 +159,7 @@ export async function apiRequest<T = any>(
   }
 
   const finalUrl = `${proxyUrl}/api/proxy/${targetUrl}?${params.toString()}`;
+  const safeUrl = sanitizeUrl(finalUrl);
 
   const options: RequestInit = {
     method,
@@ -115,7 +184,7 @@ export async function apiRequest<T = any>(
     } catch (e) {
       console.error('Parse error for ' + endpoint + ':', e);
       throw new Error(
-        'PBX returned non-JSON response. Check CORS proxy configuration.'
+        `PBX returned non-JSON response for ${endpoint}. Check proxy configuration.`
       );
     }
 
@@ -127,11 +196,24 @@ export async function apiRequest<T = any>(
     if (responseData.errcode === 10004 && !isRetry) {
       console.log('Token expired, need to re-authenticate');
       clearAccessToken();
-      throw new Error('Authentication expired. Please reconnect.');
+      throw new Error(`Authentication expired while calling ${endpoint}. Please reconnect.`);
     }
 
     if (!response.ok || (responseData.errcode && responseData.errcode !== 0)) {
-      throw new Error(`API Error ${responseData.errcode}: ${responseData.errmsg}`);
+      console.error('API request failed', {
+        endpoint,
+        status: response.status,
+        errcode: responseData.errcode,
+        errmsg: responseData.errmsg,
+        url: safeUrl,
+        method,
+      });
+      throw new ApiError(
+        responseData.errcode ?? response.status,
+        responseData.errmsg || 'Unknown error',
+        endpoint,
+        response.status
+      );
     }
 
     return responseData;
@@ -272,10 +354,19 @@ export async function fetchExtensions(
     if (cached) return cached;
   }
 
-  const result = await apiRequest<Extension[]>('extension/list?page_size=1000');
-  if (result && result.data) {
-    apiCache.set(cacheKey, result.data);
-    return result.data;
+  const result = await apiRequest<any>('extension/list?page_size=1000');
+  if (result && result.errcode === 0) {
+    const extensions = ((result as any).extension_list || result.data || []) as any[];
+    const mapped = extensions.map((ext) => ({
+      id: normalizeNumber(ext.id || ext.ext_id || ext.extension_id),
+      number: normalizeNumber(ext.number || ext.ext_num),
+      display_name: ext.caller_id_name || ext.display_name || ext.username,
+      username: ext.username || ext.user_name,
+      online_status: ext.online_status,
+      presence_status: ext.presence_status,
+    })) as Extension[];
+    apiCache.set(cacheKey, mapped);
+    return mapped;
   }
   return [];
 }
@@ -310,9 +401,13 @@ export async function fetchQueues(useCache = true): Promise<Queue[]> {
 
   const result = await apiRequest<any>('queue/list?page_size=100');
   if (result && result.errcode === 0) {
-    const queues = ((result as any).queue_list || result.data || []) as Queue[];
-    apiCache.set(cacheKey, queues);
-    return queues;
+    const queues = ((result as any).queue_list || result.data || []) as any[];
+    const mapped = queues.map((queue) => ({
+      id: normalizeNumber(queue.id || queue.queue_id),
+      name: queue.name || queue.queue_name,
+    })) as Queue[];
+    apiCache.set(cacheKey, mapped);
+    return mapped;
   }
   return [];
 }
@@ -352,7 +447,8 @@ export async function fetchCDR(
     disposition?: string;
   }
 ): Promise<{ data: CallRecord[]; hasMore: boolean }> {
-  let endpoint = `cdr/list?page_size=${pageSize}&sort_by=time&order_by=desc&page=${page}`;
+  const baseEndpoint = `cdr/list?page_size=${pageSize}&sort_by=time&order_by=desc&page=${page}`;
+  let endpoint = baseEndpoint;
 
   if (filters) {
     if (filters.startTime) {
@@ -369,7 +465,17 @@ export async function fetchCDR(
     }
   }
 
-  const result = await apiRequest<CallRecord[]>(endpoint);
+  let result: ApiResponse<CallRecord[]> | null = null;
+  try {
+    result = await apiRequest<CallRecord[]>(endpoint);
+  } catch (error: any) {
+    if (filters && error instanceof ApiError && error.errcode === 40002) {
+      console.warn('CDR filter parameters rejected by PBX, retrying without filters');
+      result = await apiRequest<CallRecord[]>(baseEndpoint);
+    } else {
+      throw error;
+    }
+  }
 
   if (result && result.errcode === 0 && result.data) {
     return {
@@ -417,43 +523,87 @@ export async function updateInboundRoute(
   return result?.errcode === 0;
 }
 
+async function queryCallsByType(type: CallQueryType): Promise<any[]> {
+  try {
+    const result = await apiRequest<any>(`call/query?type=${type}`);
+    if (result && result.errcode === 0 && Array.isArray(result.data)) {
+      return result.data;
+    }
+    return [];
+  } catch (error: any) {
+    if (error instanceof ApiError && error.errcode === 10001) {
+      console.warn(`call/query not supported for type "${type}" on this PBX`);
+      return [];
+    }
+    throw error;
+  }
+}
+
 /**
  * Query extension status (call status)
  */
 export async function fetchExtensionStatus(
   extensionIds?: string[]
 ): Promise<ExtensionStatus[]> {
-  let endpoint = 'extension/query_call?page_size=1000';
-  if (extensionIds && extensionIds.length > 0) {
-    endpoint += `&ext_id_list=${extensionIds.join(',')}`;
+  const extensions = await fetchExtensions(true);
+  const filteredExtensions =
+    extensionIds && extensionIds.length > 0
+      ? extensions.filter((ext) => extensionIds.includes(ext.id))
+      : extensions;
+
+  const extensionStatusMap = new Map<string, 'ringing' | 'busy'>();
+
+  try {
+    const callResults = await Promise.all(
+      CALL_QUERY_TYPES.map(async (type) => ({
+        type,
+        data: await queryCallsByType(type),
+      }))
+    );
+
+    for (const callResult of callResults) {
+      for (const call of callResult.data) {
+        const members = Array.isArray(call.members) ? call.members : [];
+        for (const member of members) {
+          const data = member?.extension || member?.inbound || member?.outbound;
+          if (!data) continue;
+          const extNum = normalizeNumber(data.number || data.ext_num);
+          if (!extNum) continue;
+          const status = mapMemberStatusToExtensionState(data.member_status);
+          if (!status) continue;
+
+          const current = extensionStatusMap.get(extNum);
+          if (current === 'busy') continue;
+          if (current === 'ringing' && status === 'ringing') continue;
+          extensionStatusMap.set(extNum, status);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to query call status for extensions:', error);
   }
 
-  const result = await apiRequest<any>(endpoint);
+  return filteredExtensions.map((ext) => {
+    const extNum = normalizeNumber(ext.number || (ext as any).ext_num);
+    const online = isExtensionOnline((ext as any).online_status);
+    const callStatus = extensionStatusMap.get(extNum);
 
-  if (result && result.errcode === 0 && result.data) {
-    // Map API response to our ExtensionStatus interface
-    return result.data.map((ext: any) => ({
-      ext_id: ext.id || ext.ext_id,
-      ext_num: ext.number || ext.ext_num,
-      status: mapCallStatusToStatus(ext.call_status || ext.status),
-      call_status: ext.call_status,
-    }));
-  }
-  return [];
-}
+    let status: ExtensionStatus['status'] = 'idle';
+    if (!online) {
+      status = 'unavailable';
+    } else if (callStatus === 'busy') {
+      status = 'busy';
+    } else if (callStatus === 'ringing') {
+      status = 'ringing';
+    }
 
-function mapCallStatusToStatus(callStatus: string): 'idle' | 'ringing' | 'busy' | 'unavailable' {
-  switch (callStatus?.toLowerCase()) {
-    case 'idle':
-      return 'idle';
-    case 'ringing':
-      return 'ringing';
-    case 'talking':
-    case 'busy':
-      return 'busy';
-    default:
-      return 'unavailable';
-  }
+    return {
+      ext_id: ext.id,
+      ext_num: extNum,
+      status,
+      call_status: status === 'busy' ? 'talking' : status === 'ringing' ? 'ringing' : 'idle',
+    };
+  });
 }
 
 /**
@@ -462,50 +612,137 @@ function mapCallStatusToStatus(callStatus: string): 'idle' | 'ringing' | 'busy' 
 export async function fetchQueueStatus(
   queueId?: string
 ): Promise<QueueStatus[]> {
-  let endpoint = 'queue/query';
-  if (queueId) {
-    endpoint += `?queue_id=${queueId}`;
-  }
+  const queues = await fetchQueues(true);
+  const targetQueues = queueId
+    ? queues.filter((queue) => queue.id === queueId)
+    : queues;
 
-  const result = await apiRequest<any>(endpoint);
+  if (targetQueues.length === 0) return [];
 
-  if (result && result.errcode === 0) {
-    const queues = result.data || [];
-    return queues.map((q: any) => ({
-      queue_id: q.id || q.queue_id,
-      queue_name: q.name || q.queue_name,
-      waiting_count: q.waiting_count || 0,
-      active_count: q.active_count || 0,
-      agents: (q.agents || []).map((agent: any) => ({
-        agent_id: agent.id || agent.agent_id,
-        agent_num: agent.number || agent.agent_num,
-        agent_name: agent.name || agent.agent_name,
-        status: agent.status || 'unavailable',
-        paused: agent.paused || false,
-      })),
-    }));
-  }
-  return [];
+  const statuses = await Promise.all(
+    targetQueues.map(async (queue) => {
+      const [callStatusResult, agentStatusResult] = await Promise.all([
+        apiRequest<any>(`queue/call_status?id=${queue.id}`),
+        apiRequest<any>(`queue/agent_status?id=${queue.id}`),
+      ]);
+
+      const callStatus = callStatusResult?.data || {};
+      const agentStatusList = agentStatusResult?.data || [];
+
+      const waitingCount =
+        callStatus.waiting_calls ?? callStatus.waiting_count ?? callStatus.waiting_list?.length ?? 0;
+      const activeCount =
+        (callStatus.active_calls ?? callStatus.active_count ?? callStatus.active_list?.length ?? 0) +
+        (callStatus.ringing_calls ?? callStatus.ringing_count ?? callStatus.ringing_list?.length ?? 0);
+
+      const agents = (agentStatusList || []).map((agent: any) => {
+        const callStatusValue = Number.parseInt(agent.call_status, 10);
+        let status: QueueStatus['agents'][number]['status'] = 'unavailable';
+
+        switch (callStatusValue) {
+          case 1:
+            status = 'idle';
+            break;
+          case 2:
+          case 4:
+          case 5:
+            status = 'busy';
+            break;
+          case 3:
+            status = 'ringing';
+            break;
+          default:
+            status = 'unavailable';
+        }
+
+        return {
+          agent_id: normalizeNumber(agent.number || agent.agent_id || agent.id),
+          agent_num: normalizeNumber(agent.number || agent.agent_num),
+          agent_name: agent.name || agent.agent_name,
+          status,
+          paused: agent.is_pause === 1 || agent.paused === true,
+        };
+      });
+
+      return {
+        queue_id: queue.id,
+        queue_name: queue.name,
+        waiting_count: waitingCount,
+        active_count: activeCount,
+        agents,
+      };
+    })
+  );
+
+  return statuses;
 }
 
 /**
  * Query active calls
  */
 export async function fetchActiveCalls(): Promise<ActiveCall[]> {
-  const result = await apiRequest<any>('call/query?page_size=1000');
+  const results = await Promise.all(
+    CALL_QUERY_TYPES.map(async (type) => ({
+      type,
+      data: await queryCallsByType(type),
+    }))
+  );
 
-  if (result && result.errcode === 0 && result.data) {
-    return result.data.map((call: any) => ({
-      call_id: call.id || call.call_id,
-      channel_id: call.channel_id || call.channelid,
-      call_from: call.from || call.call_from,
-      call_to: call.to || call.call_to,
-      status: call.status || 'talking',
-      duration: call.duration || 0,
-      call_type: call.call_type || call.type || 'Internal',
-    }));
+  const calls: ActiveCall[] = [];
+
+  for (const result of results) {
+    const callType = mapCallType(result.type);
+    for (const call of result.data) {
+      const members = Array.isArray(call.members) ? call.members : [];
+      let callFrom = '';
+      let callTo = '';
+      let channelId = '';
+      let status: ActiveCall['status'] = 'talking';
+      let statusPriority = 0;
+
+      for (const member of members) {
+        const data = member?.extension || member?.inbound || member?.outbound;
+        if (!data) continue;
+
+        if (member?.inbound || member?.outbound) {
+          callFrom = data.from || callFrom;
+          callTo = data.to || callTo;
+        }
+
+        if (!channelId) {
+          channelId = data.channel_id || data.channelid || channelId;
+        }
+
+        const memberStatus = mapMemberStatusToCallState(data.member_status);
+        if (!memberStatus) continue;
+
+        const priority = memberStatus === 'hold' ? 3 : memberStatus === 'ringing' ? 2 : 1;
+        if (priority > statusPriority) {
+          statusPriority = priority;
+          status = memberStatus;
+        }
+      }
+
+      if (!callFrom && members.length > 0) {
+        const fallback = members[0].extension || members[0].inbound || members[0].outbound;
+        callFrom = fallback?.number || fallback?.from || '';
+        callTo = fallback?.to || '';
+      }
+
+      const callId = normalizeNumber(call.id || call.call_id);
+      calls.push({
+        call_id: callId || `${callType}-${channelId || callFrom}-${callTo}`,
+        channel_id: channelId,
+        call_from: callFrom,
+        call_to: callTo,
+        status,
+        duration: 0,
+        call_type: callType,
+      });
+    }
   }
-  return [];
+
+  return calls;
 }
 
 /**
@@ -513,7 +750,7 @@ export async function fetchActiveCalls(): Promise<ActiveCall[]> {
  */
 export async function hangupCall(channelId: string): Promise<boolean> {
   const result = await apiRequest('call/hangup', 'POST', {
-    channelid: channelId,
+    channel_id: channelId,
   });
   return result?.errcode === 0;
 }
@@ -523,11 +760,14 @@ export async function hangupCall(channelId: string): Promise<boolean> {
  */
 export async function transferCall(
   channelId: string,
-  destination: string
+  destination: string,
+  transferorExtension: string
 ): Promise<boolean> {
   const result = await apiRequest('call/transfer', 'POST', {
-    channelid: channelId,
-    destination: destination,
+    type: 'blind',
+    channel_id: channelId,
+    number: destination,
+    dial_permission: transferorExtension,
   });
   return result?.errcode === 0;
 }
@@ -540,7 +780,7 @@ export async function parkCall(
   parkingLot?: string
 ): Promise<boolean> {
   const result = await apiRequest('call/park', 'POST', {
-    channelid: channelId,
+    channel_id: channelId,
     parking_lot: parkingLot,
   });
   return result?.errcode === 0;
@@ -554,9 +794,11 @@ export async function monitorCall(
   targetChannelId: string,
   mode: 'listen' | 'whisper' | 'barge'
 ): Promise<boolean> {
-  const result = await apiRequest(`extension/${mode}`, 'POST', {
-    ext_num: extensionNum,
-    channelid: targetChannelId,
+  const listenType = mode === 'listen' ? 1 : mode === 'whisper' ? 2 : 3;
+  const result = await apiRequest('call/listen', 'POST', {
+    extension: extensionNum,
+    channel_id: targetChannelId,
+    listen_type: listenType,
   });
   return result?.errcode === 0;
 }

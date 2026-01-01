@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import {
@@ -17,6 +17,7 @@ type CMSTab = 'contacts' | 'companies';
 
 export function CMSLayout() {
   const [activeTab, setActiveTab] = useState<CMSTab>('contacts');
+  const [isPending, startTransition] = useTransition();
   const {
     contacts,
     setContacts,
@@ -168,7 +169,7 @@ export function CMSLayout() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => startTransition(() => setActiveTab(tab.id))}
                 className={`
                   flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors
                   ${isActive
@@ -202,8 +203,9 @@ export function CMSLayout() {
       <motion.div
         key={activeTab}
         initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        animate={{ opacity: isPending ? 0.6 : 1, y: 0 }}
         transition={{ duration: 0.2 }}
+        className={isPending ? 'pointer-events-none' : ''}
       >
         {activeTab === 'contacts' && <ContactsList />}
         {activeTab === 'companies' && <CompaniesList />}

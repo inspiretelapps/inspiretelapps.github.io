@@ -448,39 +448,48 @@ export async function fetchCDR(
   }
 ): Promise<{ data: CallRecord[]; hasMore: boolean }> {
   const baseEndpoint = `cdr/list?page_size=${pageSize}&sort_by=time&order_by=desc&page=${page}`;
-  let endpoint = baseEndpoint;
-
-  if (filters) {
-    if (filters.startTime) {
-      endpoint += `&start_time=${encodeURIComponent(filters.startTime)}`;
-    }
-    if (filters.endTime) {
-      endpoint += `&end_time=${encodeURIComponent(filters.endTime)}`;
-    }
-    if (filters.extNum) {
-      endpoint += `&ext_num=${filters.extNum}`;
-    }
-    if (filters.disposition) {
-      endpoint += `&disposition=${filters.disposition}`;
-    }
-  }
+  const hasFilters =
+    !!filters &&
+    (Boolean(filters.startTime) ||
+      Boolean(filters.endTime) ||
+      Boolean(filters.extNum) ||
+      Boolean(filters.disposition));
 
   let result: ApiResponse<CallRecord[]> | null = null;
-  try {
-    result = await apiRequest<CallRecord[]>(endpoint);
-  } catch (error: any) {
-    if (filters && error instanceof ApiError && error.errcode === 40002) {
-      console.warn('CDR filter parameters rejected by PBX, retrying without filters');
-      result = await apiRequest<CallRecord[]>(baseEndpoint);
-    } else {
-      throw error;
+
+  if (hasFilters && filters) {
+    const params = new URLSearchParams();
+    if (filters.startTime) params.append('start_time', filters.startTime);
+    if (filters.endTime) params.append('end_time', filters.endTime);
+    if (filters.disposition) params.append('status', filters.disposition);
+    if (filters.extNum) params.append('call_from', filters.extNum);
+
+    const endpoint = `cdr/search?${params.toString()}`;
+
+    try {
+      result = await apiRequest<CallRecord[]>(endpoint);
+    } catch (error: any) {
+      if (error instanceof ApiError && error.errcode === 40002) {
+        console.warn('CDR search parameters rejected by PBX, retrying without filters');
+        result = await apiRequest<CallRecord[]>(baseEndpoint);
+      } else {
+        throw error;
+      }
     }
+  } else {
+    result = await apiRequest<CallRecord[]>(baseEndpoint);
   }
 
   if (result && result.errcode === 0 && result.data) {
+    const totalNumber = (result as any).total_number;
+    const hasMore =
+      typeof totalNumber === 'number'
+        ? page * pageSize < totalNumber
+        : result.data.length >= pageSize;
+
     return {
       data: result.data,
-      hasMore: result.data.length >= pageSize,
+      hasMore,
     };
   }
 

@@ -58,7 +58,14 @@ export function QueueMonitor() {
 
   const totalWaiting = queues.reduce((sum, q) => sum + q.waiting_count, 0);
   const totalActive = queues.reduce((sum, q) => sum + q.active_count, 0);
-  const totalAgents = queues.reduce((sum, q) => sum + q.agents.length, 0);
+  const uniqueAgents = new Set<string>();
+  queues.forEach((queue) => {
+    queue.agents.forEach((agent) => {
+      const key = agent.agent_num || agent.agent_id;
+      if (key) uniqueAgents.add(key);
+    });
+  });
+  const totalAgents = uniqueAgents.size;
 
   if (loading) {
     return (

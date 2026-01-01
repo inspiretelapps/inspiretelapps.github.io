@@ -7,6 +7,8 @@ import {
   User,
   Merge,
   X,
+  SortAsc,
+  Clock,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { ContactCard } from './ContactCard';
@@ -15,9 +17,12 @@ import { ContactDetail } from './ContactDetail';
 import { MergeContactsModal } from './MergeContactsModal';
 import type { Contact } from '@/types';
 
+type SortOption = 'name' | 'recent';
+
 export function ContactsList() {
   const { contacts, cmsLoading } = useStore();
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<SortOption>('name');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
@@ -25,19 +30,32 @@ export function ContactsList() {
   const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set());
   const [showMergeModal, setShowMergeModal] = useState(false);
 
-  // Filter contacts based on search
+  // Filter and sort contacts
   const filteredContacts = useMemo(() => {
-    if (!searchQuery.trim()) return contacts;
+    let result = contacts;
 
-    const query = searchQuery.toLowerCase();
-    return contacts.filter(
-      (contact) =>
-        contact.name.toLowerCase().includes(query) ||
-        contact.company?.toLowerCase().includes(query) ||
-        contact.email?.toLowerCase().includes(query) ||
-        contact.phones.some((p) => p.number.includes(query))
-    );
-  }, [contacts, searchQuery]);
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (contact) =>
+          contact.name.toLowerCase().includes(query) ||
+          contact.company?.toLowerCase().includes(query) ||
+          contact.email?.toLowerCase().includes(query) ||
+          contact.phones.some((p) => p.number.includes(query))
+      );
+    }
+
+    // Sort
+    return [...result].sort((a, b) => {
+      if (sortBy === 'name') {
+        return a.name.localeCompare(b.name);
+      } else {
+        // Sort by createdAt descending (most recent first)
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+    });
+  }, [contacts, searchQuery, sortBy]);
 
   const handleAddContact = () => {
     setEditingContact(null);
@@ -123,6 +141,26 @@ export function ContactsList() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
+          </div>
+          {/* Sort Toggle */}
+          <div className="flex items-center">
+            <button
+              onClick={() => setSortBy(sortBy === 'name' ? 'recent' : 'name')}
+              className="flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors text-sm"
+              title={sortBy === 'name' ? 'Sorted alphabetically' : 'Sorted by recently added'}
+            >
+              {sortBy === 'name' ? (
+                <>
+                  <SortAsc className="w-4 h-4" />
+                  <span className="hidden sm:inline">A-Z</span>
+                </>
+              ) : (
+                <>
+                  <Clock className="w-4 h-4" />
+                  <span className="hidden sm:inline">Recent</span>
+                </>
+              )}
+            </button>
           </div>
           <div className="flex gap-2">
             {mergeMode ? (

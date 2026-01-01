@@ -11,6 +11,7 @@ import {
 import { Card } from '@/components/ui/Card';
 import { Loader } from '@/components/ui/Loader';
 import { fetchCDR } from '@/services/api';
+import { formatDateTimeForApi } from '@/utils/helpers';
 
 interface AnalyticsData {
   totalCalls: number;
@@ -58,8 +59,8 @@ export function SimplifiedAnalytics() {
       }
 
       const result = await fetchCDR(1, 1000, {
-        startTime: startTime.toISOString(),
-        endTime: now.toISOString(),
+        startTime: formatDateTimeForApi(startTime),
+        endTime: formatDateTimeForApi(now),
       });
 
       const calls = result.data;

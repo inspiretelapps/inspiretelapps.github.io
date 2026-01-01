@@ -81,9 +81,17 @@ export function ActiveCallControls() {
       toast.error('Please enter a transfer destination');
       return;
     }
+    if (!monitorExtension.trim()) {
+      toast.error('Please enter your extension number');
+      return;
+    }
 
     try {
-      const success = await transferCall(selectedCall.channel_id, transferDestination);
+      const success = await transferCall(
+        selectedCall.channel_id,
+        transferDestination,
+        monitorExtension
+      );
       if (success) {
         toast.success('Call transferred successfully');
         setShowTransferModal(false);
@@ -202,7 +210,7 @@ export function ActiveCallControls() {
         {/* Monitor Extension Input */}
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Your Extension (for monitoring)
+            Your Extension (for monitoring / transfers)
           </label>
           <input
             type="text"

@@ -7,12 +7,17 @@ export interface YeastarConfig {
 }
 
 // Extension Types
+export type ExtensionOnlineStatus = Record<string, { status?: number; ip?: string }>;
+
 export interface Extension {
   id: string;
   number: string;
   display_name?: string;
   username?: string;
   ext_name?: string;
+  caller_id_name?: string;
+  online_status?: ExtensionOnlineStatus;
+  presence_status?: { status?: number };
 }
 
 // IVR Types

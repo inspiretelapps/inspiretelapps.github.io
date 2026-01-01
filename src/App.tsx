@@ -10,7 +10,7 @@ import { QuickActionsBar } from '@/components/dashboard/QuickActionsBar';
 import { ExtensionStatusDashboard } from '@/components/dashboard/ExtensionStatus';
 import { QueueMonitor } from '@/components/dashboard/QueueMonitor';
 import { ActiveCallControls } from '@/components/dashboard/ActiveCallControls';
-import { RouteSwitchingPresets } from '@/components/dashboard/RouteSwitchingPresets';
+import { InboundRoutingManager } from '@/components/dashboard/InboundRoutingManager';
 import { SimplifiedAnalytics } from '@/components/dashboard/SimplifiedAnalytics';
 import { motion } from 'framer-motion';
 
@@ -93,8 +93,8 @@ function App() {
           {/* Active Call Controls */}
           <ActiveCallControls />
 
-          {/* Route Switching Presets */}
-          <RouteSwitchingPresets />
+          {/* Inbound Routing */}
+          <InboundRoutingManager />
 
           {/* Recent Calls */}
           <RecentCalls />

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
 import { BarChart3, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Loader } from '@/components/ui/Loader';
@@ -125,8 +124,7 @@ function buildActivitySeries(
   calls: CallRecord[],
   start: Date,
   bucketCount: number,
-  bucketMs: number,
-  labels: string[]
+  bucketMs: number
 ): { series: number[]; total: number } {
   const series = Array.from({ length: bucketCount }, () => 0);
 
@@ -334,16 +332,14 @@ export function SimplifiedAnalytics() {
         currentCdr.records,
         currentStart,
         rangeConfig.bucketCount,
-        bucketMs,
-        labels
+        bucketMs
       );
 
       const previousSeries = buildActivitySeries(
         previousCdr.records,
         previousStart,
         rangeConfig.bucketCount,
-        bucketMs,
-        labels
+        bucketMs
       );
 
       setActivity({

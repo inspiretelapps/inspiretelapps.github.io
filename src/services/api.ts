@@ -962,10 +962,7 @@ export async function updateCompanyContact(
     remark: string;
   }>
 ): Promise<boolean> {
-  const payload = { id, ...contact };
-  console.log('DEBUG: updateCompanyContact payload:', JSON.stringify(payload, null, 2));
-  const result = await apiRequest('company_contact/update', 'POST', payload);
-  console.log('DEBUG: updateCompanyContact result:', result);
+  const result = await apiRequest('company_contact/update', 'POST', { id, ...contact });
   return result?.errcode === 0;
 }
 

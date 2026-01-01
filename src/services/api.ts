@@ -222,18 +222,34 @@ export async function getAccessToken(
       );
     }
 
+    // Check if response has expected structure
+    if (!data || typeof data !== 'object') {
+      console.error('Unexpected response structure:', data);
+      throw new Error(
+        'Invalid response from PBX/Proxy. Check console for details.\n' +
+        'Response: ' + JSON.stringify(data).substring(0, 100)
+      );
+    }
+
     if (data.errcode === 0 && data.access_token) {
       sessionStorage.setItem('yeastar_accessToken', data.access_token);
       accessToken = data.access_token;
       console.log('Authentication successful');
       return data.access_token;
     } else {
-      const errorMsg = `Auth failed: Error ${data.errcode}: ${data.errmsg || 'Unknown error'}`;
+      // Handle both cases: when errcode exists and when it doesn't
+      const errorCode = data.errcode !== undefined ? data.errcode : 'unknown';
+      const errorMessage = data.errmsg || data.message || data.error || 'No error message provided';
+
+      const errorMsg = `Auth failed: Error ${errorCode}: ${errorMessage}`;
       console.error(errorMsg);
-      console.error('Common errors:');
+      console.error('Full response:', data);
+      console.error('\nCommon Yeastar API errors:');
       console.error('- Error 10003: Invalid username/password');
       console.error('- Error 10004: Token expired');
-      console.error('- Error 10005: IP not whitelisted');
+      console.error('- Error 10005: IP not whitelisted in PBX API settings');
+      console.error('- Error 10006: No permission');
+      console.error('\nIf error code is "unknown", the proxy may be returning an error.');
       throw new Error(errorMsg);
     }
   } catch (error: any) {

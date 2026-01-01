@@ -642,6 +642,8 @@ export async function fetchExtensionStatus(
     return {
       ext_id: ext.id,
       ext_num: extNum,
+      ext_name: (ext as any).ext_name,
+      display_name: ext.display_name || (ext as any).caller_id_name || ext.username,
       status,
       call_status: status === 'busy' ? 'talking' : status === 'ringing' ? 'ringing' : 'idle',
       presence_status: typeof presenceStatus === 'number' ? presenceStatus : undefined,

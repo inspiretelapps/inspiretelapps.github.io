@@ -100,6 +100,8 @@ export interface CDRApiResponse extends ApiResponse {
 export interface ExtensionStatus {
   ext_id: string;
   ext_num: string;
+  ext_name?: string;
+  display_name?: string;
   status: 'idle' | 'ringing' | 'busy' | 'unavailable';
   call_status?: 'idle' | 'ringing' | 'talking';
   presence_status?: number;

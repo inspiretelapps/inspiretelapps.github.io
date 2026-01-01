@@ -164,14 +164,16 @@ export function ExtensionStatusDashboard() {
                 {getStatusIcon(ext.status)}
                 <div>
                   <p className="font-medium text-gray-900 dark:text-white">
-                    Ext {ext.ext_num}
+                    {ext.display_name || ext.ext_name || `Extension ${ext.ext_num}`}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    ID: {ext.ext_id}
+                    Ext {ext.ext_num} • ID: {ext.ext_id}
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Presence: {ext.presence_label || 'Unknown'}
-                  </p>
+                  {ext.presence_label && (
+                    <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                      Presence: {ext.presence_label}
+                    </p>
+                  )}
                 </div>
               </div>
               {getStatusBadge(ext.status)}

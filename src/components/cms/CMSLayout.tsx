@@ -48,8 +48,6 @@ export function CMSLayout() {
           ...manualContacts,
         ];
 
-        setContacts(mergedContacts);
-
         // Extract unique companies from contacts
         const companyNames = new Set<string>();
         mergedContacts.forEach((contact) => {
@@ -63,21 +61,39 @@ export function CMSLayout() {
         const now = new Date().toISOString();
         const updatedCompanies: Company[] = [];
 
+        // Build a map from company name to company ID
+        const companyNameToId = new Map<string, string>();
+
         companyNames.forEach((name) => {
           const existing = existingCompanyMap.get(name.toLowerCase());
           if (existing) {
             updatedCompanies.push(existing);
+            companyNameToId.set(name.toLowerCase(), existing.id);
           } else {
-            updatedCompanies.push({
+            const newCompany: Company = {
               id: generateId(),
               name,
               phonePatterns: [],
               createdAt: now,
               updatedAt: now,
-            });
+            };
+            updatedCompanies.push(newCompany);
+            companyNameToId.set(name.toLowerCase(), newCompany.id);
           }
         });
 
+        // Link contacts to their companies via companyId
+        const linkedContacts = mergedContacts.map((contact) => {
+          if (contact.company?.trim()) {
+            const companyId = companyNameToId.get(contact.company.trim().toLowerCase());
+            if (companyId) {
+              return { ...contact, companyId };
+            }
+          }
+          return contact;
+        });
+
+        setContacts(linkedContacts);
         setCompanies(updatedCompanies);
 
         setCmsSyncState({

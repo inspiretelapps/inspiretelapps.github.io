@@ -15,8 +15,8 @@ import {
   PhoneMissed,
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
-import type { Contact } from '@/types';
-import { formatPhoneNumber, getPhoneTypeLabel, normalizePhoneNumber } from '@/utils/phoneUtils';
+import type { Contact, CallRecord } from '@/types';
+import { formatPhoneNumber, getPhoneTypeLabel, normalizePhoneNumber, phoneNumbersMatch } from '@/utils/phoneUtils';
 import { deleteCompanyContact, fetchCDR } from '@/services/api';
 import toast from 'react-hot-toast';
 
@@ -32,19 +32,25 @@ interface CallStats {
   missed: number;
 }
 
+interface ContactCall extends CallRecord {
+  direction: 'inbound' | 'outbound';
+  wasAnswered: boolean;
+}
+
 export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) {
   const { deleteContact } = useStore();
   const [isDeleting, setIsDeleting] = useState(false);
   const [callStats, setCallStats] = useState<CallStats>({ inbound: 0, outbound: 0, missed: 0 });
+  const [recentCalls, setRecentCalls] = useState<ContactCall[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
 
-  // Fetch call statistics for this contact's phone numbers
+  // Fetch call statistics and CDR for this contact's phone numbers
   useEffect(() => {
-    const fetchCallStats = async () => {
+    const fetchCallData = async () => {
       setLoadingStats(true);
       try {
-        // Get normalized phone numbers for this contact
-        const phoneNumbers = contact.phones.map((p) => normalizePhoneNumber(p.number));
+        // Get phone numbers for this contact
+        const contactPhones = contact.phones.map((p) => p.number);
 
         // Fetch recent CDR (last 90 days, up to 1000 records)
         const endTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -54,38 +60,77 @@ export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) 
 
         const result = await fetchCDR(1, 1000, { startTime, endTime });
 
-        // Count calls involving this contact's phone numbers
+        // Filter and count calls involving this contact's phone numbers
         const stats: CallStats = { inbound: 0, outbound: 0, missed: 0 };
+        const calls: ContactCall[] = [];
 
         for (const call of result.data) {
-          const callFrom = normalizePhoneNumber(call.call_from || '');
-          const callTo = normalizePhoneNumber(call.call_to || '');
+          // Check if contact's number is in call_from or call_to
+          const matchesFrom = contactPhones.some((num) => phoneNumbersMatch(call.call_from, num));
+          const matchesTo = contactPhones.some((num) => phoneNumbersMatch(call.call_to, num));
 
-          const matchesFrom = phoneNumbers.some((num) => callFrom.includes(num) || num.includes(callFrom));
-          const matchesTo = phoneNumbers.some((num) => callTo.includes(num) || num.includes(callTo));
+          if (!matchesFrom && !matchesTo) continue;
 
-          if (matchesFrom || matchesTo) {
-            if (call.disposition === 'ANSWERED') {
-              if (matchesFrom) {
-                stats.inbound++;
-              } else {
-                stats.outbound++;
-              }
-            } else if (call.disposition === 'NO ANSWER' || call.disposition === 'BUSY') {
+          const wasAnswered = call.disposition === 'ANSWERED';
+
+          // Determine direction based on call_type and which field matches:
+          // - Inbound call where contact is in call_from = Contact called us
+          // - Outbound call where contact is in call_to = We called contact
+          let direction: 'inbound' | 'outbound';
+
+          if (call.call_type === 'Inbound' && matchesFrom) {
+            // External caller (contact) called us - this is inbound FROM the contact
+            direction = 'inbound';
+            if (wasAnswered) {
+              stats.inbound++;
+            } else {
               stats.missed++;
             }
+          } else if (call.call_type === 'Outbound' && matchesTo) {
+            // We called external number (contact) - this is outbound TO the contact
+            direction = 'outbound';
+            if (wasAnswered) {
+              stats.outbound++;
+            } else {
+              stats.missed++;
+            }
+          } else if (matchesFrom || matchesTo) {
+            // Internal calls or other scenarios - use best guess
+            direction = matchesFrom ? 'inbound' : 'outbound';
+            if (wasAnswered) {
+              if (direction === 'inbound') stats.inbound++;
+              else stats.outbound++;
+            } else {
+              stats.missed++;
+            }
+          } else {
+            continue;
           }
+
+          calls.push({
+            ...call,
+            direction,
+            wasAnswered,
+          });
         }
 
+        // Sort by time descending (most recent first)
+        calls.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
         setCallStats(stats);
+        setRecentCalls(calls.slice(0, 20)); // Keep last 20 calls
       } catch (error) {
-        console.error('Error fetching call stats:', error);
+        console.error('Error fetching call data:', error);
       } finally {
         setLoadingStats(false);
       }
     };
 
-    fetchCallStats();
+    if (contact.phones.length > 0) {
+      fetchCallData();
+    } else {
+      setLoadingStats(false);
+    }
   }, [contact.phones]);
 
   // Format phone number for tel: link (ensure it starts with +)
@@ -93,6 +138,31 @@ export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) 
     const normalized = normalizePhoneNumber(phoneNumber);
     // If it doesn't start with +, add + (assuming it's a valid international format)
     return normalized.startsWith('+') ? normalized : `+${normalized}`;
+  };
+
+  // Format call time for display
+  const formatCallTime = (time: string): string => {
+    const date = new Date(time);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return `Today ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (diffDays === 1) {
+      return `Yesterday ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (diffDays < 7) {
+      return date.toLocaleDateString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+  };
+
+  // Format duration in seconds to readable format
+  const formatDuration = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
   };
 
   const handleDelete = async () => {
@@ -207,6 +277,64 @@ export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) 
               </div>
             )}
           </div>
+
+          {/* Recent Call History */}
+          {!loadingStats && recentCalls.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
+                Recent Calls
+              </h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {recentCalls.map((call, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm"
+                  >
+                    {/* Direction Icon */}
+                    <div className={`p-1.5 rounded-full ${
+                      !call.wasAnswered
+                        ? 'bg-red-100 dark:bg-red-900/30'
+                        : call.direction === 'inbound'
+                          ? 'bg-green-100 dark:bg-green-900/30'
+                          : 'bg-blue-100 dark:bg-blue-900/30'
+                    }`}>
+                      {!call.wasAnswered ? (
+                        <PhoneMissed className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                      ) : call.direction === 'inbound' ? (
+                        <PhoneIncoming className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                      ) : (
+                        <PhoneOutgoing className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      )}
+                    </div>
+
+                    {/* Call Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-gray-900 dark:text-white truncate">
+                        {call.direction === 'inbound' ? call.call_to : call.call_from}
+                        <span className="text-gray-400 mx-1">→</span>
+                        {call.direction === 'inbound' ? call.call_from : call.call_to}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatCallTime(call.time)}
+                        {call.wasAnswered && call.talk_duration > 0 && (
+                          <span className="ml-2">({formatDuration(call.talk_duration)})</span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Status */}
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      call.wasAnswered
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    }`}>
+                      {call.disposition}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Phone Numbers */}
           {contact.phones.length > 0 && (

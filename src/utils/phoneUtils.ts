@@ -31,14 +31,22 @@ export function yeastarToPhones(contact: YeastarContact): ContactPhone[] {
 
 /**
  * Convert our ContactPhone array to Yeastar phone fields format
+ * Explicitly sets empty strings for unused phone types so Yeastar clears them
  */
 export function phonesToYeastar(phones: ContactPhone[]): Record<string, string> {
   const result: Record<string, string> = {};
 
+  // Build a map of phone types that have values
+  const phoneMap = new Map<string, string>();
   for (const phone of phones) {
     if (phone.number && phone.number.trim()) {
-      result[phone.type] = phone.number.trim();
+      phoneMap.set(phone.type, phone.number.trim());
     }
+  }
+
+  // Set all phone fields - empty string for types not in use
+  for (const field of PHONE_FIELDS) {
+    result[field] = phoneMap.get(field) || '';
   }
 
   return result;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   X,
@@ -10,12 +10,14 @@ import {
   Cloud,
   HardDrive,
   Clock,
-  PhoneCall,
+  PhoneIncoming,
+  PhoneOutgoing,
+  PhoneMissed,
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import type { Contact } from '@/types';
-import { formatPhoneNumber, getPhoneTypeLabel } from '@/utils/phoneUtils';
-import { dialCall, deleteCompanyContact } from '@/services/api';
+import { formatPhoneNumber, getPhoneTypeLabel, normalizePhoneNumber } from '@/utils/phoneUtils';
+import { deleteCompanyContact, fetchCDR } from '@/services/api';
 import toast from 'react-hot-toast';
 
 interface ContactDetailProps {
@@ -24,31 +26,73 @@ interface ContactDetailProps {
   onEdit: () => void;
 }
 
+interface CallStats {
+  inbound: number;
+  outbound: number;
+  missed: number;
+}
+
 export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) {
-  const { deleteContact, callerExtension } = useStore();
+  const { deleteContact } = useStore();
   const [isDeleting, setIsDeleting] = useState(false);
-  const [callingNumber, setCallingNumber] = useState<string | null>(null);
+  const [callStats, setCallStats] = useState<CallStats>({ inbound: 0, outbound: 0, missed: 0 });
+  const [loadingStats, setLoadingStats] = useState(true);
 
-  const handleCall = async (phoneNumber: string) => {
-    if (!callerExtension) {
-      toast.error('Please select your extension in the header first');
-      return;
-    }
+  // Fetch call statistics for this contact's phone numbers
+  useEffect(() => {
+    const fetchCallStats = async () => {
+      setLoadingStats(true);
+      try {
+        // Get normalized phone numbers for this contact
+        const phoneNumbers = contact.phones.map((p) => normalizePhoneNumber(p.number));
 
-    setCallingNumber(phoneNumber);
-    try {
-      const result = await dialCall(callerExtension, phoneNumber);
-      if (result.success) {
-        toast.success(`Calling ${formatPhoneNumber(phoneNumber)}...`);
-      } else {
-        toast.error('Failed to initiate call');
+        // Fetch recent CDR (last 90 days, up to 1000 records)
+        const endTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 90);
+        const startTime = startDate.toISOString().replace('T', ' ').slice(0, 19);
+
+        const result = await fetchCDR(1, 1000, { startTime, endTime });
+
+        // Count calls involving this contact's phone numbers
+        const stats: CallStats = { inbound: 0, outbound: 0, missed: 0 };
+
+        for (const call of result.data) {
+          const callFrom = normalizePhoneNumber(call.call_from || '');
+          const callTo = normalizePhoneNumber(call.call_to || '');
+
+          const matchesFrom = phoneNumbers.some((num) => callFrom.includes(num) || num.includes(callFrom));
+          const matchesTo = phoneNumbers.some((num) => callTo.includes(num) || num.includes(callTo));
+
+          if (matchesFrom || matchesTo) {
+            if (call.disposition === 'ANSWERED') {
+              if (matchesFrom) {
+                stats.inbound++;
+              } else {
+                stats.outbound++;
+              }
+            } else if (call.disposition === 'NO ANSWER' || call.disposition === 'BUSY') {
+              stats.missed++;
+            }
+          }
+        }
+
+        setCallStats(stats);
+      } catch (error) {
+        console.error('Error fetching call stats:', error);
+      } finally {
+        setLoadingStats(false);
       }
-    } catch (error: any) {
-      console.error('Call error:', error);
-      toast.error(error.message || 'Failed to initiate call');
-    } finally {
-      setCallingNumber(null);
-    }
+    };
+
+    fetchCallStats();
+  }, [contact.phones]);
+
+  // Format phone number for tel: link (ensure it starts with +)
+  const formatTelLink = (phoneNumber: string): string => {
+    const normalized = normalizePhoneNumber(phoneNumber);
+    // If it doesn't start with +, add + (assuming it's a valid international format)
+    return normalized.startsWith('+') ? normalized : `+${normalized}`;
   };
 
   const handleDelete = async () => {
@@ -134,6 +178,36 @@ export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) 
 
         {/* Content */}
         <div className="p-6 space-y-6 max-h-[50vh] overflow-y-auto">
+          {/* Call Statistics */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">
+              Call Statistics (Last 90 Days)
+            </h3>
+            {loadingStats ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex flex-col items-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                  <PhoneIncoming className="w-5 h-5 text-green-600 dark:text-green-400 mb-1" />
+                  <span className="text-lg font-semibold text-green-700 dark:text-green-300">{callStats.inbound}</span>
+                  <span className="text-xs text-green-600 dark:text-green-400">Received</span>
+                </div>
+                <div className="flex flex-col items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <PhoneOutgoing className="w-5 h-5 text-blue-600 dark:text-blue-400 mb-1" />
+                  <span className="text-lg font-semibold text-blue-700 dark:text-blue-300">{callStats.outbound}</span>
+                  <span className="text-xs text-blue-600 dark:text-blue-400">Made</span>
+                </div>
+                <div className="flex flex-col items-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                  <PhoneMissed className="w-5 h-5 text-red-600 dark:text-red-400 mb-1" />
+                  <span className="text-lg font-semibold text-red-700 dark:text-red-300">{callStats.missed}</span>
+                  <span className="text-xs text-red-600 dark:text-red-400">Missed</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Phone Numbers */}
           {contact.phones.length > 0 && (
             <div>
@@ -154,18 +228,13 @@ export function ContactDetail({ contact, onClose, onEdit }: ContactDetailProps) 
                         {formatPhoneNumber(phone.number)}
                       </p>
                     </div>
-                    <button
-                      onClick={() => handleCall(phone.number)}
-                      disabled={callingNumber === phone.number}
-                      className="p-2 bg-green-500 hover:bg-green-600 disabled:bg-green-400 text-white rounded-full transition-colors"
+                    <a
+                      href={`tel:${formatTelLink(phone.number)}`}
+                      className="p-2 bg-green-500 hover:bg-green-600 text-white rounded-full transition-colors"
                       title="Click to call"
                     >
-                      {callingNumber === phone.number ? (
-                        <PhoneCall className="w-4 h-4 animate-pulse" />
-                      ) : (
-                        <Phone className="w-4 h-4" />
-                      )}
-                    </button>
+                      <Phone className="w-4 h-4" />
+                    </a>
                   </div>
                 ))}
               </div>

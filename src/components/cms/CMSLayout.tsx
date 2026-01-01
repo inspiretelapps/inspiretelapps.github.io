@@ -9,7 +9,8 @@ import {
 import { ContactsList } from './contacts/ContactsList';
 import { CompaniesList } from './companies/CompaniesList';
 import { fetchCompanyContacts } from '@/services/api';
-import { yeastarContactToContact } from '@/utils/phoneUtils';
+import { yeastarContactToContact, generateId } from '@/utils/phoneUtils';
+import type { Company } from '@/types';
 import toast from 'react-hot-toast';
 
 type CMSTab = 'contacts' | 'companies';
@@ -19,6 +20,8 @@ export function CMSLayout() {
   const {
     contacts,
     setContacts,
+    companies,
+    setCompanies,
     setCmsLoading,
     cmsLoading,
     cmsSyncState,
@@ -46,12 +49,43 @@ export function CMSLayout() {
         ];
 
         setContacts(mergedContacts);
+
+        // Extract unique companies from contacts
+        const companyNames = new Set<string>();
+        mergedContacts.forEach((contact) => {
+          if (contact.company?.trim()) {
+            companyNames.add(contact.company.trim());
+          }
+        });
+
+        // Create/update companies list, preserving existing company data
+        const existingCompanyMap = new Map(companies.map((c) => [c.name.toLowerCase(), c]));
+        const now = new Date().toISOString();
+        const updatedCompanies: Company[] = [];
+
+        companyNames.forEach((name) => {
+          const existing = existingCompanyMap.get(name.toLowerCase());
+          if (existing) {
+            updatedCompanies.push(existing);
+          } else {
+            updatedCompanies.push({
+              id: generateId(),
+              name,
+              phonePatterns: [],
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        });
+
+        setCompanies(updatedCompanies);
+
         setCmsSyncState({
           lastYeastarSync: new Date().toISOString(),
           inProgress: false,
         });
 
-        toast.success(`Synced ${result.data.length} contacts from Yeastar`);
+        toast.success(`Synced ${result.data.length} contacts and ${updatedCompanies.length} companies from Yeastar`);
       } else {
         toast.success('No contacts found in Yeastar');
         setCmsSyncState({

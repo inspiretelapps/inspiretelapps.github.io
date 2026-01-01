@@ -6,6 +6,9 @@ import type {
   IVR,
   Queue,
   InboundRoute,
+  ExtensionStatus,
+  QueueStatus,
+  ActiveCall,
 } from '@/types';
 
 // Simple cache implementation
@@ -78,7 +81,10 @@ export async function apiRequest<T = any>(
   }
 
   // Build the target URL for the proxy
-  const targetUrl = `${pbxHost}/openapi/v1.0/${endpoint.split('?')[0]}`;
+  // Remove protocol from pbxHost since proxy will add https://
+  const cleanHost = pbxHost.replace(/^https?:\/\//, '');
+
+  const targetUrl = `${cleanHost}/openapi/v1.0/${endpoint.split('?')[0]}`;
   const params = new URLSearchParams(endpoint.split('?')[1] || '');
   if (accessToken) {
     params.append('access_token', accessToken);
@@ -136,6 +142,36 @@ export async function apiRequest<T = any>(
 }
 
 /**
+ * Test proxy connection
+ */
+export async function testProxyConnection(proxyUrl: string): Promise<boolean> {
+  try {
+    console.log('Testing proxy connection to:', proxyUrl);
+
+    const testUrl = `${proxyUrl}/api/health`;
+    const response = await fetch(testUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    console.log('Proxy health check status:', response.status);
+
+    if (response.ok) {
+      console.log('✅ Proxy is accessible');
+      return true;
+    } else {
+      console.warn('⚠️ Proxy responded but returned status:', response.status);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Cannot reach proxy:', error);
+    return false;
+  }
+}
+
+/**
  * Get access token from Yeastar PBX
  */
 export async function getAccessToken(
@@ -144,8 +180,18 @@ export async function getAccessToken(
   clientSecret: string,
   proxyUrlParam: string
 ): Promise<string> {
-  const targetUrl = `${host}/openapi/v1.0/get_token`;
+  // Remove protocol from host since proxy will add https://
+  const cleanHost = host.replace(/^https?:\/\//, '');
+
+  const targetUrl = `${cleanHost}/openapi/v1.0/get_token`;
   const url = `${proxyUrlParam}/api/proxy/${targetUrl}`;
+
+  console.log('Authentication request URL:', url);
+  console.log('Target PBX host:', cleanHost);
+  console.log('Request payload:', {
+    username: clientId,
+    password: '***hidden***'
+  });
 
   try {
     const response = await fetch(url, {
@@ -164,26 +210,52 @@ export async function getAccessToken(
     const responseText = await response.text();
     let data: ApiResponse;
 
+    console.log('Response status:', response.status);
+    console.log('Response text:', responseText.substring(0, 500));
+
     try {
       data = JSON.parse(responseText);
     } catch (e) {
       console.error('Auth parse error:', responseText.substring(0, 200));
       throw new Error(
-        'Proxy/PBX returned invalid response. Check proxy configuration.'
+        'Proxy/PBX returned invalid response. Check proxy configuration and ensure CORS is enabled.'
       );
     }
 
     if (data.errcode === 0 && data.access_token) {
       sessionStorage.setItem('yeastar_accessToken', data.access_token);
       accessToken = data.access_token;
+      console.log('Authentication successful');
       return data.access_token;
     } else {
+      const errorMsg = `Auth failed: Error ${data.errcode}: ${data.errmsg || 'Unknown error'}`;
+      console.error(errorMsg);
+      console.error('Common errors:');
+      console.error('- Error 10003: Invalid username/password');
+      console.error('- Error 10004: Token expired');
+      console.error('- Error 10005: IP not whitelisted');
+      throw new Error(errorMsg);
+    }
+  } catch (error: any) {
+    console.error('Error getting access token:', error);
+
+    // Provide more specific error messages
+    if (error.message && error.message.includes('Failed to fetch')) {
       throw new Error(
-        `Auth failed: Error ${data.errcode}: ${data.errmsg || 'Unknown'}`
+        'Cannot connect to proxy server. Please check:\n' +
+        '1. Proxy URL is correct and accessible\n' +
+        '2. Proxy server is running\n' +
+        '3. CORS is enabled on proxy\n' +
+        '4. No browser extensions blocking requests\n' +
+        `Proxy URL: ${proxyUrlParam}`
+      );
+    } else if (error.name === 'TypeError') {
+      throw new Error(
+        'Network error. Check your internet connection and proxy URL.\n' +
+        `Attempting to connect to: ${proxyUrlParam}`
       );
     }
-  } catch (error) {
-    console.error('Error getting access token:', error);
+
     throw error;
   }
 }
@@ -342,6 +414,150 @@ export async function updateInboundRoute(
   route: Partial<InboundRoute> & { id: number }
 ): Promise<boolean> {
   const result = await apiRequest('inbound_route/update', 'POST', route);
+  return result?.errcode === 0;
+}
+
+/**
+ * Query extension status (call status)
+ */
+export async function fetchExtensionStatus(
+  extensionIds?: string[]
+): Promise<ExtensionStatus[]> {
+  let endpoint = 'extension/query_call?page_size=1000';
+  if (extensionIds && extensionIds.length > 0) {
+    endpoint += `&ext_id_list=${extensionIds.join(',')}`;
+  }
+
+  const result = await apiRequest<any>(endpoint);
+
+  if (result && result.errcode === 0 && result.data) {
+    // Map API response to our ExtensionStatus interface
+    return result.data.map((ext: any) => ({
+      ext_id: ext.id || ext.ext_id,
+      ext_num: ext.number || ext.ext_num,
+      status: mapCallStatusToStatus(ext.call_status || ext.status),
+      call_status: ext.call_status,
+    }));
+  }
+  return [];
+}
+
+function mapCallStatusToStatus(callStatus: string): 'idle' | 'ringing' | 'busy' | 'unavailable' {
+  switch (callStatus?.toLowerCase()) {
+    case 'idle':
+      return 'idle';
+    case 'ringing':
+      return 'ringing';
+    case 'talking':
+    case 'busy':
+      return 'busy';
+    default:
+      return 'unavailable';
+  }
+}
+
+/**
+ * Query queue status
+ */
+export async function fetchQueueStatus(
+  queueId?: string
+): Promise<QueueStatus[]> {
+  let endpoint = 'queue/query';
+  if (queueId) {
+    endpoint += `?queue_id=${queueId}`;
+  }
+
+  const result = await apiRequest<any>(endpoint);
+
+  if (result && result.errcode === 0) {
+    const queues = result.data || [];
+    return queues.map((q: any) => ({
+      queue_id: q.id || q.queue_id,
+      queue_name: q.name || q.queue_name,
+      waiting_count: q.waiting_count || 0,
+      active_count: q.active_count || 0,
+      agents: (q.agents || []).map((agent: any) => ({
+        agent_id: agent.id || agent.agent_id,
+        agent_num: agent.number || agent.agent_num,
+        agent_name: agent.name || agent.agent_name,
+        status: agent.status || 'unavailable',
+        paused: agent.paused || false,
+      })),
+    }));
+  }
+  return [];
+}
+
+/**
+ * Query active calls
+ */
+export async function fetchActiveCalls(): Promise<ActiveCall[]> {
+  const result = await apiRequest<any>('call/query?page_size=1000');
+
+  if (result && result.errcode === 0 && result.data) {
+    return result.data.map((call: any) => ({
+      call_id: call.id || call.call_id,
+      channel_id: call.channel_id || call.channelid,
+      call_from: call.from || call.call_from,
+      call_to: call.to || call.call_to,
+      status: call.status || 'talking',
+      duration: call.duration || 0,
+      call_type: call.call_type || call.type || 'Internal',
+    }));
+  }
+  return [];
+}
+
+/**
+ * Hangup a call
+ */
+export async function hangupCall(channelId: string): Promise<boolean> {
+  const result = await apiRequest('call/hangup', 'POST', {
+    channelid: channelId,
+  });
+  return result?.errcode === 0;
+}
+
+/**
+ * Transfer a call (blind transfer)
+ */
+export async function transferCall(
+  channelId: string,
+  destination: string
+): Promise<boolean> {
+  const result = await apiRequest('call/transfer', 'POST', {
+    channelid: channelId,
+    destination: destination,
+  });
+  return result?.errcode === 0;
+}
+
+/**
+ * Park a call
+ */
+export async function parkCall(
+  channelId: string,
+  parkingLot?: string
+): Promise<boolean> {
+  const result = await apiRequest('call/park', 'POST', {
+    channelid: channelId,
+    parking_lot: parkingLot,
+  });
+  return result?.errcode === 0;
+}
+
+/**
+ * Monitor a call (listen, whisper, barge-in)
+ */
+export async function monitorCall(
+  extensionNum: string,
+  targetChannelId: string,
+  mode: 'listen' | 'whisper' | 'barge'
+): Promise<boolean> {
+  const result = await apiRequest(`extension/${mode}`, 'POST', {
+    ext_num: extensionNum,
+    channelid: targetChannelId,
+  });
   return result?.errcode === 0;
 }
 

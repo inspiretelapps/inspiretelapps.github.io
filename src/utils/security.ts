@@ -40,10 +40,15 @@ export function isValidUrl(url: string, allowedDomains: string[]): boolean {
  * Validate PBX host format
  */
 export function isValidPbxHost(host: string): boolean {
+  // Remove protocol if present for validation
+  const cleanHost = host.replace(/^https?:\/\//, '');
+
   // Should be a valid domain or IP
   const domainRegex = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/i;
   const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-  return domainRegex.test(host) || ipRegex.test(host);
+  const localhostRegex = /^localhost(:\d+)?$/i;
+
+  return domainRegex.test(cleanHost) || ipRegex.test(cleanHost) || localhostRegex.test(cleanHost);
 }
 
 /**

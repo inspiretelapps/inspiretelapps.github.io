@@ -91,16 +91,64 @@ export interface CDRApiResponse extends ApiResponse {
   data: CallRecord[];
 }
 
-// Quick Button Configuration
-export interface QuickButtonConfig {
-  button1: ButtonConfig;
-  button2: ButtonConfig;
+// Extension Status
+export interface ExtensionStatus {
+  ext_id: string;
+  ext_num: string;
+  status: 'idle' | 'ringing' | 'busy' | 'unavailable';
+  call_status?: 'idle' | 'ringing' | 'talking';
 }
 
-export interface ButtonConfig {
-  label: string;
-  dest: string;
-  destValue: string;
+// Queue Status
+export interface QueueStatus {
+  queue_id: string;
+  queue_name: string;
+  waiting_count: number;
+  active_count: number;
+  agents: QueueAgent[];
+}
+
+export interface QueueAgent {
+  agent_id: string;
+  agent_num: string;
+  agent_name: string;
+  status: 'idle' | 'busy' | 'ringing' | 'unavailable';
+  paused: boolean;
+}
+
+// Active Call
+export interface ActiveCall {
+  call_id: string;
+  channel_id: string;
+  call_from: string;
+  call_to: string;
+  status: 'ringing' | 'talking' | 'hold';
+  duration: number;
+  call_type: 'Inbound' | 'Outbound' | 'Internal';
+}
+
+// Route Preset
+export interface RoutePreset {
+  id: string;
+  name: string;
+  routes: RoutePresetItem[];
+}
+
+export interface RoutePresetItem {
+  routeId: number;
+  routeName: string;
+  destination: string;
+  destinationValue: string;
+}
+
+// Notification
+export interface Notification {
+  id: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+  title: string;
+  message: string;
+  timestamp: number;
+  read: boolean;
 }
 
 // Theme

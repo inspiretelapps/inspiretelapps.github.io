@@ -5,7 +5,13 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { Header } from '@/components/dashboard/Header';
 import { TodayStats } from '@/components/dashboard/TodayStats';
 import { RecentCalls } from '@/components/dashboard/RecentCalls';
-import { QuickRouteOverride } from '@/components/dashboard/QuickRouteOverride';
+import { LiveDashboardWidgets } from '@/components/dashboard/LiveDashboardWidgets';
+import { QuickActionsBar } from '@/components/dashboard/QuickActionsBar';
+import { ExtensionStatusDashboard } from '@/components/dashboard/ExtensionStatus';
+import { QueueMonitor } from '@/components/dashboard/QueueMonitor';
+import { ActiveCallControls } from '@/components/dashboard/ActiveCallControls';
+import { RouteSwitchingPresets } from '@/components/dashboard/RouteSwitchingPresets';
+import { SimplifiedAnalytics } from '@/components/dashboard/SimplifiedAnalytics';
 import { motion } from 'framer-motion';
 
 function App() {
@@ -15,6 +21,25 @@ function App() {
     // Set initial theme
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
+
+  const handleRefreshExtensions = () => {
+    // Trigger refresh for extension status
+    window.location.reload();
+  };
+
+  const handleRefreshQueues = () => {
+    // Trigger refresh for queue monitor
+    window.location.reload();
+  };
+
+  const handleRefreshCalls = () => {
+    // Trigger refresh for active calls
+    window.location.reload();
+  };
+
+  const handleRefreshAll = () => {
+    window.location.reload();
+  };
 
   if (!isAuthenticated) {
     return (
@@ -42,14 +67,37 @@ function App() {
           transition={{ duration: 0.5 }}
           className="space-y-6"
         >
+          {/* Quick Actions Bar */}
+          <QuickActionsBar
+            onRefreshExtensions={handleRefreshExtensions}
+            onRefreshQueues={handleRefreshQueues}
+            onRefreshCalls={handleRefreshCalls}
+            onRefreshAll={handleRefreshAll}
+          />
+
+          {/* Live Dashboard Widgets */}
+          <LiveDashboardWidgets />
+
           {/* Stats Section */}
           <TodayStats />
 
-          {/* Two Column Layout */}
+          {/* Analytics */}
+          <SimplifiedAnalytics />
+
+          {/* Two Column Layout - Extension Status & Queue Monitor */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <RecentCalls />
-            <QuickRouteOverride />
+            <ExtensionStatusDashboard />
+            <QueueMonitor />
           </div>
+
+          {/* Active Call Controls */}
+          <ActiveCallControls />
+
+          {/* Route Switching Presets */}
+          <RouteSwitchingPresets />
+
+          {/* Recent Calls */}
+          <RecentCalls />
         </motion.div>
       </main>
 

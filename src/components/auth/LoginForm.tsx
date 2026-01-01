@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
-import { getAccessToken, setApiConfig } from '@/services/api';
+import { getAccessToken, setApiConfig, testProxyConnection } from '@/services/api';
 import { useStore } from '@/store/useStore';
 import { isValidPbxHost } from '@/utils/security';
 import toast from 'react-hot-toast';
@@ -76,12 +76,35 @@ export function LoginForm() {
     setLoading(true);
 
     try {
+      // First, test proxy connection
+      console.log('Step 1: Testing proxy connection...');
+      toast.loading('Testing proxy connection...', { id: 'proxy-test' });
+
+      const proxyOk = await testProxyConnection(formData.proxyUrl);
+
+      if (!proxyOk) {
+        toast.dismiss('proxy-test');
+        throw new Error(
+          `Cannot reach proxy at ${formData.proxyUrl}\n\n` +
+          'Please check:\n' +
+          '1. Proxy URL is correct (e.g., https://your-proxy.vercel.app)\n' +
+          '2. Proxy server is deployed and running\n' +
+          '3. No typos in the URL'
+        );
+      }
+
+      toast.dismiss('proxy-test');
+      console.log('Step 2: Authenticating with PBX...');
+      toast.loading('Authenticating with PBX...', { id: 'auth' });
+
       const token = await getAccessToken(
         formData.pbxHost,
         formData.clientId,
         formData.clientSecret,
         formData.proxyUrl
       );
+
+      toast.dismiss('auth');
 
       setApiConfig({
         pbxHost: formData.pbxHost,
@@ -99,7 +122,14 @@ export function LoginForm() {
       toast.success('Successfully connected to PBX!');
     } catch (error: any) {
       console.error('Connection error:', error);
-      toast.error(error.message || 'Failed to connect to PBX');
+      toast.dismiss();
+
+      // Show multi-line error message
+      const errorLines = error.message.split('\n');
+      toast.error(
+        errorLines[0] + (errorLines.length > 1 ? '\n(See console for details)' : ''),
+        { duration: 6000 }
+      );
     } finally {
       setLoading(false);
     }
@@ -146,7 +176,7 @@ export function LoginForm() {
             <Input
               label="PBX Host URL"
               type="text"
-              placeholder="pbx.yeastarcloud.com"
+              placeholder="pbx.yeastarcloud.com or https://your-pbx.com"
               value={formData.pbxHost}
               onChange={(e) =>
                 setFormData({ ...formData, pbxHost: e.target.value })
@@ -186,10 +216,32 @@ export function LoginForm() {
               Connect & Fetch Data
             </Button>
 
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-4">
-              Ensure the IP address of your proxy is whitelisted in your Yeastar PBX's
-              API settings.
-            </p>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-4 space-y-3">
+              <div>
+                <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                  Setup Checklist:
+                </p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Deploy proxy server (see api/proxy.js)</li>
+                  <li>Whitelist proxy IP in PBX API settings</li>
+                  <li>Enable API access in Advanced → API Settings</li>
+                  <li>Use API username/password (not admin credentials)</li>
+                </ul>
+              </div>
+
+              <div className="border-t border-gray-300 dark:border-gray-600 pt-2">
+                <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                  Troubleshooting "Failed to Fetch":
+                </p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Verify proxy URL is accessible in browser</li>
+                  <li>Check proxy is deployed and running</li>
+                  <li>Ensure CORS is enabled on proxy</li>
+                  <li>Check browser console (F12) for errors</li>
+                  <li>Try disabling browser extensions</li>
+                </ul>
+              </div>
+            </div>
           </form>
         </Card>
       </motion.div>

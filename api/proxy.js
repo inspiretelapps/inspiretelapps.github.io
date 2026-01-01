@@ -1,13 +1,18 @@
-// Security: Whitelist allowed PBX domains
-const ALLOWED_DOMAINS = [
+// Security: Whitelist allowed PBX domains (override via ALLOWED_DOMAINS env)
+const DEFAULT_ALLOWED_DOMAINS = [
   'pbx.yeastarcloud.com',
   'yeastarcloud.com',
+  'pbx.yeastarycm.co.za',
   // Add your custom PBX domains here
 ];
+const ALLOWED_DOMAINS = (process.env.ALLOWED_DOMAINS || DEFAULT_ALLOWED_DOMAINS.join(','))
+  .split(',')
+  .map(domain => domain.trim())
+  .filter(Boolean);
 
 // Rate limiting: Simple in-memory store
 const requestCounts = new Map();
-const RATE_LIMIT = 100; // requests per minute
+const RATE_LIMIT = Number.parseInt(process.env.RATE_LIMIT || '100', 10) || 100; // requests per minute
 const RATE_WINDOW = 60000; // 1 minute
 
 function checkRateLimit(ip) {

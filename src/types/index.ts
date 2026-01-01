@@ -102,6 +102,8 @@ export interface ExtensionStatus {
   ext_num: string;
   status: 'idle' | 'ringing' | 'busy' | 'unavailable';
   call_status?: 'idle' | 'ringing' | 'talking';
+  presence_status?: number;
+  presence_label?: string;
 }
 
 // Queue Status

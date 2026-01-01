@@ -81,12 +81,10 @@ export async function apiRequest<T = any>(
   }
 
   // Build the target URL for the proxy
-  // Ensure pbxHost has protocol
-  const normalizedHost = pbxHost.startsWith('http://') || pbxHost.startsWith('https://')
-    ? pbxHost
-    : `https://${pbxHost}`;
+  // Remove protocol from pbxHost since proxy will add https://
+  const cleanHost = pbxHost.replace(/^https?:\/\//, '');
 
-  const targetUrl = `${normalizedHost}/openapi/v1.0/${endpoint.split('?')[0]}`;
+  const targetUrl = `${cleanHost}/openapi/v1.0/${endpoint.split('?')[0]}`;
   const params = new URLSearchParams(endpoint.split('?')[1] || '');
   if (accessToken) {
     params.append('access_token', accessToken);
@@ -182,16 +180,14 @@ export async function getAccessToken(
   clientSecret: string,
   proxyUrlParam: string
 ): Promise<string> {
-  // Ensure host has protocol
-  const normalizedHost = host.startsWith('http://') || host.startsWith('https://')
-    ? host
-    : `https://${host}`;
+  // Remove protocol from host since proxy will add https://
+  const cleanHost = host.replace(/^https?:\/\//, '');
 
-  const targetUrl = `${normalizedHost}/openapi/v1.0/get_token`;
+  const targetUrl = `${cleanHost}/openapi/v1.0/get_token`;
   const url = `${proxyUrlParam}/api/proxy/${targetUrl}`;
 
   console.log('Authentication request URL:', url);
-  console.log('Target PBX URL:', targetUrl);
+  console.log('Target PBX host:', cleanHost);
   console.log('Request payload:', {
     username: clientId,
     password: '***hidden***'

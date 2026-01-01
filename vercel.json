@@ -1,5 +1,7 @@
 {
   "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "builds": [
     {
       "src": "api/proxy.js",
@@ -8,8 +10,19 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
+      "src": "/api/health",
       "dest": "/api/proxy.js"
+    },
+    {
+      "src": "/api/proxy/(.*)",
+      "dest": "/api/proxy.js"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }

@@ -12,10 +12,12 @@ import { QueueMonitor } from '@/components/dashboard/QueueMonitor';
 import { ActiveCallControls } from '@/components/dashboard/ActiveCallControls';
 import { InboundRoutingManager } from '@/components/dashboard/InboundRoutingManager';
 import { SimplifiedAnalytics } from '@/components/dashboard/SimplifiedAnalytics';
+import { CMSLayout } from '@/components/cms/CMSLayout';
 import { motion } from 'framer-motion';
+import { LayoutDashboard, Users } from 'lucide-react';
 
 function App() {
-  const { isAuthenticated, theme } = useStore();
+  const { isAuthenticated, theme, currentView, setCurrentView } = useStore();
 
   useEffect(() => {
     // Set initial theme
@@ -61,44 +63,86 @@ function App() {
       <Header />
 
       <main className="container mx-auto px-4 py-8">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5 }}
-          className="space-y-6"
-        >
-          {/* Quick Actions Bar */}
-          <QuickActionsBar
-            onRefreshExtensions={handleRefreshExtensions}
-            onRefreshQueues={handleRefreshQueues}
-            onRefreshCalls={handleRefreshCalls}
-            onRefreshAll={handleRefreshAll}
-          />
+        {/* View Toggle */}
+        <div className="flex items-center gap-2 mb-6">
+          <button
+            onClick={() => setCurrentView('dashboard')}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors
+              ${currentView === 'dashboard'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+              }
+            `}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            Dashboard
+          </button>
+          <button
+            onClick={() => setCurrentView('cms')}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors
+              ${currentView === 'cms'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+              }
+            `}
+          >
+            <Users className="w-4 h-4" />
+            Contacts CMS
+          </button>
+        </div>
 
-          {/* Live Dashboard Widgets */}
-          <LiveDashboardWidgets />
+        {currentView === 'dashboard' ? (
+          <motion.div
+            key="dashboard"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6"
+          >
+            {/* Quick Actions Bar */}
+            <QuickActionsBar
+              onRefreshExtensions={handleRefreshExtensions}
+              onRefreshQueues={handleRefreshQueues}
+              onRefreshCalls={handleRefreshCalls}
+              onRefreshAll={handleRefreshAll}
+            />
 
-          {/* Stats Section */}
-          <TodayStats />
+            {/* Live Dashboard Widgets */}
+            <LiveDashboardWidgets />
 
-          {/* Analytics */}
-          <SimplifiedAnalytics />
+            {/* Stats Section */}
+            <TodayStats />
 
-          {/* Two Column Layout - Extension Status & Queue Monitor */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ExtensionStatusDashboard />
-            <QueueMonitor />
-          </div>
+            {/* Analytics */}
+            <SimplifiedAnalytics />
 
-          {/* Active Call Controls */}
-          <ActiveCallControls />
+            {/* Two Column Layout - Extension Status & Queue Monitor */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <ExtensionStatusDashboard />
+              <QueueMonitor />
+            </div>
 
-          {/* Inbound Routing */}
-          <InboundRoutingManager />
+            {/* Active Call Controls */}
+            <ActiveCallControls />
 
-          {/* Recent Calls */}
-          <RecentCalls />
-        </motion.div>
+            {/* Inbound Routing */}
+            <InboundRoutingManager />
+
+            {/* Recent Calls */}
+            <RecentCalls />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="cms"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+          >
+            <CMSLayout />
+          </motion.div>
+        )}
       </main>
 
       <Toaster

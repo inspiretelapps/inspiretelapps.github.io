@@ -160,3 +160,140 @@ export interface Notification {
 
 // Theme
 export type Theme = 'light' | 'dark';
+
+// ============================================
+// CMS Types
+// ============================================
+
+// Phone number type for contacts (maps to Yeastar's fixed fields)
+export type ContactPhoneType =
+  | 'business'
+  | 'business2'
+  | 'mobile'
+  | 'mobile2'
+  | 'home'
+  | 'home2'
+  | 'business_fax'
+  | 'home_fax'
+  | 'other';
+
+export interface ContactPhone {
+  type: ContactPhoneType;
+  number: string;
+}
+
+// Contact (CMS)
+export interface Contact {
+  id: string;                          // Local UUID
+  yeastarContactId?: number;           // Yeastar's contact ID (for two-way sync)
+  name: string;                        // Single name field (matches Yeastar contact_name)
+  companyId?: string;                  // Local company grouping
+  company?: string;                    // Company display name
+  email?: string;
+  phones: ContactPhone[];
+  remark?: string;
+  phonebookIds?: number[];             // Yeastar phonebook memberships
+  source: 'yeastar' | 'manual';
+  syncStatus?: 'synced' | 'pending' | 'error';
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Company (CMS)
+export interface Company {
+  id: string;
+  name: string;
+  phonePatterns: string[];             // e.g. ["+2711", "011"] for matching
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Contact Note (CMS)
+export interface ContactNote {
+  id: string;
+  contactId: string;
+  content: string;
+  createdAt: string;
+  createdBy?: string;                  // Extension number
+}
+
+// Yeastar API Contact (raw response format)
+export interface YeastarContact {
+  id: number;
+  contact_name: string;
+  company?: string;
+  email?: string;
+  business?: string;
+  business2?: string;
+  mobile?: string;
+  mobile2?: string;
+  home?: string;
+  home2?: string;
+  business_fax?: string;
+  home_fax?: string;
+  other?: string;
+  remark?: string;
+  phonebook_list?: Array<{ id: number; name: string }>;
+}
+
+// Yeastar Phonebook
+export interface YeastarPhonebook {
+  id: number;
+  name: string;
+  total: number;
+  member_select: 'sel_all' | 'sel_specific';
+}
+
+// CMS API Responses
+export interface CompanyContactsApiResponse extends ApiResponse {
+  total_number?: number;
+  data?: YeastarContact[];
+}
+
+export interface PhonebooksApiResponse extends ApiResponse {
+  total_number?: number;
+  data?: YeastarPhonebook[];
+}
+
+export interface DialCallApiResponse extends ApiResponse {
+  call_id?: string;
+}
+
+// Call Analytics (for CMS)
+export interface ContactCallAnalytics {
+  contactId: string;
+  period: { label: string; startDate: string; endDate: string };
+  totalCalls: number;
+  inboundCalls: number;
+  outboundCalls: number;
+  missedCalls: number;
+  answeredCalls: number;
+  totalDuration: number;
+  averageDuration: number;
+}
+
+export interface DailyCallData {
+  date: string;
+  inbound: number;
+  outbound: number;
+  missed: number;
+  duration: number;
+}
+
+// CMS Sync State
+export interface CMSSyncState {
+  lastYeastarSync: string | null;
+  inProgress: boolean;
+  error?: string;
+}
+
+// CMS Data Storage (for JSON file)
+export interface CMSData {
+  companies: Company[];
+  contacts: Contact[];
+  notes: ContactNote[];
+  syncState: CMSSyncState;
+}
+
+// View Type
+export type AppView = 'dashboard' | 'cms';

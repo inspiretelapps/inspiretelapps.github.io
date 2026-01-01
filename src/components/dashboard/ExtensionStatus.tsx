@@ -169,6 +169,9 @@ export function ExtensionStatusDashboard() {
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     ID: {ext.ext_id}
                   </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Presence: {ext.presence_label || 'Unknown'}
+                  </p>
                 </div>
               </div>
               {getStatusBadge(ext.status)}

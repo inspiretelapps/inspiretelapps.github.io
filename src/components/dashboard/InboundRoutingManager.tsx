@@ -22,22 +22,32 @@ const DESTINATION_OPTIONS = [
   { value: 'end_call', label: 'End Call' },
 ];
 
-function getRouteDestination(route: InboundRoute): { dest: string; value: string } {
-  const dest =
-    route.def_dest ||
-    route.default_destination ||
-    route.destination ||
-    route.time_condition ||
-    '';
+function getRouteDestinations(route: InboundRoute): {
+  isTimeBased: boolean;
+  defaultDest: string;
+  defaultValue: string;
+  businessDest: string;
+  businessValue: string;
+} {
+  const defaultDest =
+    route.def_dest || route.default_destination || route.destination || '';
 
-  const value =
+  const defaultValue =
     route.def_dest_value ||
     route.default_destination_value ||
     route.default_desination_value ||
     route.destination_value ||
     '';
 
-  return { dest, value };
+  const businessDest = route.business_hours_destination || '';
+  const businessValue = route.business_hours_destination_value || '';
+
+  const isTimeBased =
+    Boolean(route.time_condition) ||
+    Boolean(businessDest) ||
+    Boolean(businessValue);
+
+  return { isTimeBased, defaultDest, defaultValue, businessDest, businessValue };
 }
 
 export function InboundRoutingManager() {
@@ -57,6 +67,9 @@ export function InboundRoutingManager() {
   const [selectedRouteId, setSelectedRouteId] = useState<string>('');
   const [destinationType, setDestinationType] = useState<string>('');
   const [destinationValue, setDestinationValue] = useState<string>('');
+  const [businessDestinationType, setBusinessDestinationType] = useState<string>('');
+  const [businessDestinationValue, setBusinessDestinationValue] = useState<string>('');
+  const [isTimeBased, setIsTimeBased] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -74,9 +87,12 @@ export function InboundRoutingManager() {
     const route = inboundRoutes.find((r) => String(r.id) === selectedRouteId);
     if (!route) return;
 
-    const { dest, value } = getRouteDestination(route);
-    setDestinationType(dest);
-    setDestinationValue(value);
+    const destinations = getRouteDestinations(route);
+    setIsTimeBased(destinations.isTimeBased);
+    setDestinationType(destinations.defaultDest);
+    setDestinationValue(destinations.defaultValue);
+    setBusinessDestinationType(destinations.businessDest);
+    setBusinessDestinationValue(destinations.businessValue);
   }, [selectedRouteId, inboundRoutes]);
 
   const loadData = async () => {
@@ -106,8 +122,8 @@ export function InboundRoutingManager() {
     (route) => String(route.id) === selectedRouteId
   );
 
-  const destinationOptions = useMemo(() => {
-    switch (destinationType) {
+  const getDestinationOptions = (type: string) => {
+    switch (type) {
       case 'extension':
         return extensions.map((ext) => ({
           value: ext.id,
@@ -126,33 +142,45 @@ export function InboundRoutingManager() {
       default:
         return [];
     }
-  }, [destinationType, extensions, queues, ivrs]);
+  };
 
   const currentDestinationLabel = useMemo(() => {
     if (!selectedRoute) return '—';
-    const { dest, value } = getRouteDestination(selectedRoute);
-    if (!dest) return 'Not configured';
+    const { isTimeBased: timeBased, defaultDest, defaultValue, businessDest, businessValue } =
+      getRouteDestinations(selectedRoute);
 
-    switch (dest) {
-      case 'extension': {
-        const ext = extensions.find((extItem) => extItem.id === value);
-        return ext
-          ? `Extension ${ext.number} ${ext.display_name ? `(${ext.display_name})` : ''}`.trim()
-          : `Extension ${value}`;
+    const resolveLabel = (dest: string, value: string) => {
+      if (!dest) return 'Not configured';
+      switch (dest) {
+        case 'extension': {
+          const ext = extensions.find((extItem) => extItem.id === value);
+          return ext
+            ? `Extension ${ext.number} ${ext.display_name ? `(${ext.display_name})` : ''}`.trim()
+            : `Extension ${value}`;
+        }
+        case 'queue': {
+          const queue = queues.find((queueItem) => queueItem.id === value);
+          return queue ? `Queue ${queue.name}` : `Queue ${value}`;
+        }
+        case 'ivr': {
+          const ivr = ivrs.find((ivrItem) => ivrItem.id === value);
+          return ivr ? `IVR ${ivr.name}` : `IVR ${value}`;
+        }
+        case 'end_call':
+          return 'End Call';
+        default:
+          return `${dest} ${value}`.trim();
       }
-      case 'queue': {
-        const queue = queues.find((queueItem) => queueItem.id === value);
-        return queue ? `Queue ${queue.name}` : `Queue ${value}`;
-      }
-      case 'ivr': {
-        const ivr = ivrs.find((ivrItem) => ivrItem.id === value);
-        return ivr ? `IVR ${ivr.name}` : `IVR ${value}`;
-      }
-      case 'end_call':
-        return 'End Call';
-      default:
-        return `${dest} ${value}`.trim();
+    };
+
+    if (!timeBased) {
+      return resolveLabel(defaultDest, defaultValue);
     }
+
+    return `Business Hours: ${resolveLabel(businessDest, businessValue)} • After Hours: ${resolveLabel(
+      defaultDest,
+      defaultValue
+    )}`;
   }, [selectedRoute, extensions, queues, ivrs]);
 
   const handleSave = async () => {
@@ -166,19 +194,51 @@ export function InboundRoutingManager() {
       return;
     }
 
-    if (destinationType !== 'end_call' && !destinationValue) {
+    if (isTimeBased && !businessDestinationType) {
+      toast.error('Please choose a business hours destination type');
+      return;
+    }
+
+    if (!isTimeBased && destinationType !== 'end_call' && !destinationValue) {
       toast.error('Please choose a destination');
+      return;
+    }
+
+    if (
+      isTimeBased &&
+      businessDestinationType !== 'end_call' &&
+      !businessDestinationValue
+    ) {
+      toast.error('Please choose a business hours destination');
+      return;
+    }
+
+    if (
+      isTimeBased &&
+      destinationType !== 'end_call' &&
+      !destinationValue
+    ) {
+      toast.error('Please choose an after-hours destination');
       return;
     }
 
     setSaving(true);
 
     try {
-      const payload = {
-        id: selectedRoute.id,
-        def_dest: destinationType,
-        def_dest_value: destinationType === 'end_call' ? '' : destinationValue,
-      };
+      const payload = isTimeBased
+        ? {
+            id: selectedRoute.id,
+            def_dest: destinationType,
+            def_dest_value: destinationType === 'end_call' ? '' : destinationValue,
+            business_hours_destination: businessDestinationType,
+            business_hours_destination_value:
+              businessDestinationType === 'end_call' ? '' : businessDestinationValue,
+          }
+        : {
+            id: selectedRoute.id,
+            def_dest: destinationType,
+            def_dest_value: destinationType === 'end_call' ? '' : destinationValue,
+          };
 
       const success = await updateInboundRoute(payload);
 
@@ -257,54 +317,163 @@ export function InboundRoutingManager() {
             <p className="text-lg font-semibold text-gray-900 dark:text-white mt-1">
               {currentDestinationLabel}
             </p>
+            {isTimeBased && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Time-based routing is enabled for this route.
+              </p>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Destination Type
-              </label>
-              <select
-                value={destinationType}
-                onChange={(event) => {
-                  setDestinationType(event.target.value);
-                  setDestinationValue('');
-                }}
-                className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select destination type</option>
-                {DESTINATION_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Destination
-              </label>
-              {destinationType === 'end_call' ? (
-                <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-500 dark:text-gray-400">
-                  End Call (no destination required)
+          {isTimeBased ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  Business Hours Destination
+                </h4>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Destination Type
+                  </label>
+                  <select
+                    value={businessDestinationType}
+                    onChange={(event) => {
+                      setBusinessDestinationType(event.target.value);
+                      setBusinessDestinationValue('');
+                    }}
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select destination type</option>
+                    {DESTINATION_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ) : (
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Destination
+                  </label>
+                  {businessDestinationType === 'end_call' ? (
+                    <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-500 dark:text-gray-400">
+                      End Call (no destination required)
+                    </div>
+                  ) : (
+                    <select
+                      value={businessDestinationValue}
+                      onChange={(event) => setBusinessDestinationValue(event.target.value)}
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select destination</option>
+                      {getDestinationOptions(businessDestinationType).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  After Hours Destination
+                </h4>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Destination Type
+                  </label>
+                  <select
+                    value={destinationType}
+                    onChange={(event) => {
+                      setDestinationType(event.target.value);
+                      setDestinationValue('');
+                    }}
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select destination type</option>
+                    {DESTINATION_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Destination
+                  </label>
+                  {destinationType === 'end_call' ? (
+                    <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-500 dark:text-gray-400">
+                      End Call (no destination required)
+                    </div>
+                  ) : (
+                    <select
+                      value={destinationValue}
+                      onChange={(event) => setDestinationValue(event.target.value)}
+                      className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select destination</option>
+                      {getDestinationOptions(destinationType).map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Destination Type
+                </label>
                 <select
-                  value={destinationValue}
-                  onChange={(event) => setDestinationValue(event.target.value)}
+                  value={destinationType}
+                  onChange={(event) => {
+                    setDestinationType(event.target.value);
+                    setDestinationValue('');
+                  }}
                   className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">Select destination</option>
-                  {destinationOptions.map((option) => (
+                  <option value="">Select destination type</option>
+                  {DESTINATION_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
-              )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Destination
+                </label>
+                {destinationType === 'end_call' ? (
+                  <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-500 dark:text-gray-400">
+                    End Call (no destination required)
+                  </div>
+                ) : (
+                  <select
+                    value={destinationValue}
+                    onChange={(event) => setDestinationValue(event.target.value)}
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select destination</option>
+                    {getDestinationOptions(destinationType).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex items-center justify-end gap-3">
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
@@ -313,7 +482,9 @@ export function InboundRoutingManager() {
                 size="md"
                 onClick={handleSave}
                 isLoading={saving}
-                disabled={!selectedRouteId || !destinationType}
+                disabled={
+                  !selectedRouteId || !destinationType || (isTimeBased && !businessDestinationType)
+                }
               >
                 <Save size={16} className="mr-2" />
                 Update Route

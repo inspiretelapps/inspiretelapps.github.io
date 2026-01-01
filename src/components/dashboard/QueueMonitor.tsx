@@ -58,14 +58,32 @@ export function QueueMonitor() {
 
   const totalWaiting = queues.reduce((sum, q) => sum + q.waiting_count, 0);
   const totalActive = queues.reduce((sum, q) => sum + q.active_count, 0);
-  const uniqueAgents = new Set<string>();
+  const agentPriority: Record<string, number> = {
+    busy: 3,
+    ringing: 2,
+    idle: 1,
+    unavailable: 0,
+  };
+  const agentSummary = new Map<string, { status: string; paused: boolean }>();
   queues.forEach((queue) => {
     queue.agents.forEach((agent) => {
       const key = agent.agent_num || agent.agent_id;
-      if (key) uniqueAgents.add(key);
+      if (!key) return;
+      const current = agentSummary.get(key);
+      const incomingPriority = agentPriority[agent.status] ?? 0;
+      const currentPriority = current ? agentPriority[current.status] ?? 0 : -1;
+      if (!current || incomingPriority > currentPriority) {
+        agentSummary.set(key, { status: agent.status, paused: agent.paused });
+      }
     });
   });
-  const totalAgents = uniqueAgents.size;
+  const totalAgents = agentSummary.size;
+  const onlineAgents = Array.from(agentSummary.values()).filter(
+    (agent) => agent.status !== 'unavailable'
+  ).length;
+  const availableAgents = Array.from(agentSummary.values()).filter(
+    (agent) => agent.status === 'idle' && !agent.paused
+  ).length;
 
   if (loading) {
     return (
@@ -106,7 +124,7 @@ export function QueueMonitor() {
       </div>
 
       {/* Overall Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg">
           <div className="flex items-center justify-between">
             <div>
@@ -134,12 +152,34 @@ export function QueueMonitor() {
         <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Agents</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Agents Online
+              </p>
               <p className="text-3xl font-bold text-green-700 dark:text-green-400 mt-1">
-                {totalAgents}
+                {onlineAgents}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {totalAgents} total
               </p>
             </div>
             <Users size={24} className="text-green-500" />
+          </div>
+        </div>
+
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Agents Available
+              </p>
+              <p className="text-3xl font-bold text-emerald-700 dark:text-emerald-400 mt-1">
+                {availableAgents}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                idle &amp; not paused
+              </p>
+            </div>
+            <UserCheck size={24} className="text-emerald-500" />
           </div>
         </div>
       </div>

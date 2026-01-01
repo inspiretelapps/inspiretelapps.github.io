@@ -12,8 +12,10 @@ const RANGE_CONFIG = {
     label: 'Today',
     compareLabel: 'Yesterday',
     bucket: 'hour',
-    bucketCount: 24,
+    bucketCount: 12,
     spanDays: 1,
+    startHour: 6,
+    endHour: 18,
   },
   week: {
     label: 'Last 7 Days',
@@ -55,6 +57,12 @@ const PAGE_SIZE = 300;
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function setTime(date: Date, hours: number, minutes = 0, seconds = 0): Date {
+  const next = new Date(date);
+  next.setHours(hours, minutes, seconds, 0);
+  return next;
 }
 
 function addDays(date: Date, days: number): Date {
@@ -289,8 +297,10 @@ export function SimplifiedAnalytics() {
 
   const labels = useMemo(() => {
     if (rangeConfig.bucket === 'hour') {
-      return Array.from({ length: rangeConfig.bucketCount }, (_, index) =>
-        `${String(index).padStart(2, '0')}:00`
+      const startHour = rangeConfig.startHour ?? 0;
+      const labelCount = rangeConfig.bucketCount + 1;
+      return Array.from({ length: labelCount }, (_, index) =>
+        `${String(startHour + index).padStart(2, '0')}:00`
       );
     }
 
@@ -309,12 +319,23 @@ export function SimplifiedAnalytics() {
 
     try {
       const now = new Date();
-      const currentStart = startOfDay(addDays(now, -(rangeConfig.spanDays - 1)));
-      const previousStart = startOfDay(addDays(currentStart, -rangeConfig.spanDays));
-      const previousEnd = new Date(currentStart.getTime() - 1000);
+      let currentStart = startOfDay(addDays(now, -(rangeConfig.spanDays - 1)));
+      let currentEnd = now;
+      let previousStart = startOfDay(addDays(currentStart, -rangeConfig.spanDays));
+      let previousEnd = new Date(currentStart.getTime() - 1000);
+
+      if (rangeConfig.bucket === 'hour' && rangeConfig.startHour !== undefined) {
+        const dayStart = startOfDay(now);
+        currentStart = setTime(dayStart, rangeConfig.startHour);
+        currentEnd = setTime(dayStart, rangeConfig.endHour ?? 18);
+
+        const prevDayStart = addDays(dayStart, -1);
+        previousStart = setTime(prevDayStart, rangeConfig.startHour);
+        previousEnd = setTime(prevDayStart, rangeConfig.endHour ?? 18);
+      }
 
       const [currentCdr, previousCdr, extensionData] = await Promise.all([
-        fetchCdrRange(currentStart, now),
+        fetchCdrRange(currentStart, currentEnd),
         fetchCdrRange(previousStart, previousEnd),
         extensions.length > 0 ? Promise.resolve(extensions) : fetchExtensions(),
       ]);
@@ -379,6 +400,11 @@ export function SimplifiedAnalytics() {
     1,
     ...extensionStats.map((stat) => stat.received + stat.made + stat.missed)
   );
+  const delta = activity ? activity.currentTotal - activity.previousTotal : 0;
+  const deltaPct =
+    activity && activity.previousTotal > 0
+      ? Math.round((delta / activity.previousTotal) * 100)
+      : null;
 
   return (
     <Card>
@@ -431,22 +457,44 @@ export function SimplifiedAnalytics() {
                   {rangeConfig.label} compared to {rangeConfig.compareLabel}
                 </p>
               </div>
-              {activity && (
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  <span className="mr-4">Current: {activity.currentTotal}</span>
-                  <span>Previous: {activity.previousTotal}</span>
-                </div>
-              )}
             </div>
 
             {activity && (
-              <ActivityChart
-                labels={activity.labels}
-                current={activity.current}
-                previous={activity.previous}
-                currentLabel={rangeConfig.label}
-                previousLabel={rangeConfig.compareLabel}
-              />
+              <div className="grid grid-cols-1 lg:grid-cols-[200px,1fr] gap-4">
+                <div className="space-y-3">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
+                    <p className="text-xs text-blue-700 dark:text-blue-300">Current Calls</p>
+                    <p className="text-2xl font-semibold text-blue-800 dark:text-blue-200 mt-1">
+                      {activity.currentTotal}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                    <p className="text-xs text-gray-600 dark:text-gray-300">Previous Calls</p>
+                    <p className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mt-1">
+                      {activity.previousTotal}
+                    </p>
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Change{' '}
+                    <span
+                      className={
+                        delta >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600'
+                      }
+                    >
+                      {delta >= 0 ? '+' : ''}
+                      {delta}
+                      {deltaPct !== null ? ` (${deltaPct >= 0 ? '+' : ''}${deltaPct}%)` : ''}
+                    </span>
+                  </div>
+                </div>
+                <ActivityChart
+                  labels={activity.labels}
+                  current={activity.current}
+                  previous={activity.previous}
+                  currentLabel={rangeConfig.label}
+                  previousLabel={rangeConfig.compareLabel}
+                />
+              </div>
             )}
 
             {truncated && (
@@ -492,9 +540,9 @@ export function SimplifiedAnalytics() {
                           R {stat.received} · M {stat.made} · Missed {stat.missed}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-green-100 dark:bg-green-900/30 rounded">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-1">
+                          <div className="h-2 bg-green-100 dark:bg-green-900/30 rounded">
                             <div
                               className="h-2 bg-green-500 rounded"
                               style={{ width: `${receivedWidth}%` }}
@@ -504,8 +552,8 @@ export function SimplifiedAnalytics() {
                             Received
                           </span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-blue-100 dark:bg-blue-900/30 rounded">
+                        <div className="space-y-1">
+                          <div className="h-2 bg-blue-100 dark:bg-blue-900/30 rounded">
                             <div
                               className="h-2 bg-blue-500 rounded"
                               style={{ width: `${madeWidth}%` }}
@@ -515,8 +563,8 @@ export function SimplifiedAnalytics() {
                             Made
                           </span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-red-100 dark:bg-red-900/30 rounded">
+                        <div className="space-y-1">
+                          <div className="h-2 bg-red-100 dark:bg-red-900/30 rounded">
                             <div
                               className="h-2 bg-red-500 rounded"
                               style={{ width: `${missedWidth}%` }}

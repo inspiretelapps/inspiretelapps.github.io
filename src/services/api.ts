@@ -112,6 +112,25 @@ function mapCallType(type: CallQueryType): ActiveCall['call_type'] {
   }
 }
 
+function mapPresenceStatus(status?: number): string {
+  switch (status) {
+    case 0:
+      return 'Available';
+    case 1:
+      return 'Do Not Disturb';
+    case 2:
+      return 'Away';
+    case 3:
+      return 'Busy';
+    case 4:
+      return 'Out to Lunch';
+    case 5:
+      return 'Be Right Back';
+    default:
+      return status === undefined ? 'Unknown' : `Status ${status}`;
+  }
+}
+
 let accessToken: string | null = sessionStorage.getItem('yeastar_accessToken');
 let pbxHost = '';
 let proxyUrl = '';
@@ -598,6 +617,13 @@ export async function fetchExtensionStatus(
     const extNum = normalizeNumber(ext.number || (ext as any).ext_num);
     const online = isExtensionOnline((ext as any).online_status);
     const callStatus = extensionStatusMap.get(extNum);
+    const presenceStatus =
+      (ext as any).presence_status?.status ??
+      (ext as any).presence_status ??
+      (ext as any).presence;
+    const presenceLabel = mapPresenceStatus(
+      typeof presenceStatus === 'number' ? presenceStatus : undefined
+    );
 
     let status: ExtensionStatus['status'] = 'idle';
     if (!online) {
@@ -613,6 +639,8 @@ export async function fetchExtensionStatus(
       ext_num: extNum,
       status,
       call_status: status === 'busy' ? 'talking' : status === 'ringing' ? 'ringing' : 'idle',
+      presence_status: typeof presenceStatus === 'number' ? presenceStatus : undefined,
+      presence_label: presenceLabel,
     };
   });
 }

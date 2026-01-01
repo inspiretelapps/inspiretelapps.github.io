@@ -144,6 +144,36 @@ export async function apiRequest<T = any>(
 }
 
 /**
+ * Test proxy connection
+ */
+export async function testProxyConnection(proxyUrl: string): Promise<boolean> {
+  try {
+    console.log('Testing proxy connection to:', proxyUrl);
+
+    const testUrl = `${proxyUrl}/api/health`;
+    const response = await fetch(testUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    console.log('Proxy health check status:', response.status);
+
+    if (response.ok) {
+      console.log('✅ Proxy is accessible');
+      return true;
+    } else {
+      console.warn('⚠️ Proxy responded but returned status:', response.status);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Cannot reach proxy:', error);
+    return false;
+  }
+}
+
+/**
  * Get access token from Yeastar PBX
  */
 export async function getAccessToken(
@@ -162,6 +192,10 @@ export async function getAccessToken(
 
   console.log('Authentication request URL:', url);
   console.log('Target PBX URL:', targetUrl);
+  console.log('Request payload:', {
+    username: clientId,
+    password: '***hidden***'
+  });
 
   try {
     const response = await fetch(url, {
@@ -206,8 +240,26 @@ export async function getAccessToken(
       console.error('- Error 10005: IP not whitelisted');
       throw new Error(errorMsg);
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting access token:', error);
+
+    // Provide more specific error messages
+    if (error.message && error.message.includes('Failed to fetch')) {
+      throw new Error(
+        'Cannot connect to proxy server. Please check:\n' +
+        '1. Proxy URL is correct and accessible\n' +
+        '2. Proxy server is running\n' +
+        '3. CORS is enabled on proxy\n' +
+        '4. No browser extensions blocking requests\n' +
+        `Proxy URL: ${proxyUrlParam}`
+      );
+    } else if (error.name === 'TypeError') {
+      throw new Error(
+        'Network error. Check your internet connection and proxy URL.\n' +
+        `Attempting to connect to: ${proxyUrlParam}`
+      );
+    }
+
     throw error;
   }
 }

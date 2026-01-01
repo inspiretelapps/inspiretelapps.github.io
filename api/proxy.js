@@ -55,6 +55,17 @@ export async function proxyHandler(req, res) {
     return;
   }
 
+  // Health check endpoint
+  if (req.url === '/api/health' || req.url === '/health') {
+    res.status(200).json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      service: 'yeastar-proxy',
+      version: '2.0'
+    });
+    return;
+  }
+
   try {
     // Rate limiting
     const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';

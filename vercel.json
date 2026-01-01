@@ -1,13 +1,15 @@
 {
-  "functions": {
-    "api/proxy.js": {
-      "maxDuration": 10
-    }
-  },
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/api/proxy/:path*",
-      "destination": "/api/proxy.js"
+      "src": "api/proxy.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/proxy.js"
     }
   ]
 }

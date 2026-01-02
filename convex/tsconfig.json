@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "include": ["./**/*"],
+  "exclude": ["node_modules", "_generated"]
+}

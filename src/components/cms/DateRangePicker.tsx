@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Calendar, ChevronDown } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 import {
   getDateRangeFromPreset,
   formatDateRange,

@@ -21,7 +21,6 @@ export interface DateRange {
  * Get date range from preset
  */
 export function getDateRangeFromPreset(preset: DateRangePreset): DateRange {
-  const now = new Date();
   const end = endOfToday().getTime();
 
   switch (preset) {

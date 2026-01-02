@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import {
   Phone,
@@ -125,7 +125,7 @@ export function CallsInbox() {
   const getDispositionBadge = (disp: string) => {
     const isAnswered = disp === 'ANSWERED';
     return (
-      <Badge variant={isAnswered ? 'success' : 'error'}>
+      <Badge variant={isAnswered ? 'success' : 'danger'}>
         {isAnswered ? (
           <CheckCircle className="w-3 h-3 mr-1" />
         ) : (

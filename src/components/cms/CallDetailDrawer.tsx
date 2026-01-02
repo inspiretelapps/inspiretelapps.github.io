@@ -5,7 +5,6 @@ import {
   Phone,
   PhoneIncoming,
   PhoneOutgoing,
-  Clock,
   Mic,
   UserPlus,
   Building2,
@@ -98,7 +97,7 @@ export function CallDetailDrawer({
                 </span>
                 <Badge
                   variant={
-                    call.disposition === 'ANSWERED' ? 'success' : 'error'
+                    call.disposition === 'ANSWERED' ? 'success' : 'danger'
                   }
                 >
                   {call.disposition}
@@ -256,7 +255,7 @@ export function CallDetailDrawer({
                   Notes ({notes.length})
                 </h3>
                 <div className="space-y-2">
-                  {notes.map((note) => (
+                  {notes.map((note: any) => (
                     <div
                       key={note._id}
                       className="p-3 bg-gray-50 dark:bg-gray-700 rounded"
@@ -283,7 +282,7 @@ export function CallDetailDrawer({
                   Other Calls from This Number ({relatedCalls.length})
                 </h3>
                 <div className="space-y-2">
-                  {relatedCalls.slice(0, 5).map((relatedCall) => (
+                  {relatedCalls.slice(0, 5).map((relatedCall: any) => (
                     <div
                       key={relatedCall._id}
                       className="flex items-center justify-between text-sm p-2 bg-gray-50 dark:bg-gray-700 rounded"
@@ -298,7 +297,7 @@ export function CallDetailDrawer({
                         variant={
                           relatedCall.disposition === 'ANSWERED'
                             ? 'success'
-                            : 'error'
+                            : 'danger'
                         }
                       >
                         {relatedCall.disposition}

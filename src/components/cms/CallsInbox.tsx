@@ -334,7 +334,7 @@ export function CallsInbox() {
                   </td>
                 </tr>
               ) : (
-                calls.map((call) => (
+                calls.map((call: any) => (
                   <tr
                     key={call._id}
                     className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"

@@ -14,7 +14,8 @@ import { InboundRoutingManager } from '@/components/dashboard/InboundRoutingMana
 import { SimplifiedAnalytics } from '@/components/dashboard/SimplifiedAnalytics';
 import { CMSLayout } from '@/components/cms/CMSLayout';
 import { motion } from 'framer-motion';
-import { LayoutDashboard, Users } from 'lucide-react';
+import { LayoutDashboard, Users, BarChart3 } from 'lucide-react';
+import { ReportingLayout } from '@/components/reporting/ReportingLayout';
 
 function App() {
   const { isAuthenticated, theme, currentView, setCurrentView } = useStore();
@@ -96,6 +97,19 @@ function App() {
             <Users className="w-4 h-4" />
             Contacts CMS
           </button>
+          <button
+            onClick={() => setCurrentView('reporting')}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors
+              ${currentView === 'reporting'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+              }
+            `}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Reporting
+          </button>
         </div>
 
         {currentView === 'dashboard' ? (
@@ -138,7 +152,7 @@ function App() {
             {/* Recent Calls */}
             <RecentCalls />
           </motion.div>
-        ) : (
+        ) : currentView === 'cms' ? (
           <motion.div
             key="cms"
             initial={{ opacity: 0 }}
@@ -146,6 +160,15 @@ function App() {
             transition={{ duration: 0.3 }}
           >
             <CMSLayout />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="reporting"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+          >
+            <ReportingLayout />
           </motion.div>
         )}
       </main>

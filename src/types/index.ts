@@ -50,6 +50,7 @@ export interface CallRecord {
   call_from: string;
   call_to: string;
   time: string;
+  timestamp?: number; // Unix timestamp - more reliable for date parsing
   disposition: string;
   talk_duration: number;
   call_type: 'Inbound' | 'Outbound' | 'Internal';

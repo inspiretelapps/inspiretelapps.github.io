@@ -288,9 +288,15 @@ export function ReportingLayout() {
         current.setMonth(current.getMonth() + 1);
       }
 
-      // Helper function to parse CDR date in various formats
-      const parseCdrDate = (timeStr: string): Date => {
-        if (!timeStr) return new Date();
+      // Helper function to parse CDR date - uses timestamp if available, otherwise parses time string
+      const parseCdrDate = (record: CallRecord): Date | null => {
+        // Prefer Unix timestamp if available (most reliable)
+        if (record.timestamp && typeof record.timestamp === 'number') {
+          return new Date(record.timestamp * 1000); // Convert seconds to milliseconds
+        }
+
+        const timeStr = record.time;
+        if (!timeStr) return null;
 
         // Try parsing different formats
         // Format 1: YYYY/MM/DD HH:MM:SS or YYYY-MM-DD HH:MM:SS
@@ -307,7 +313,7 @@ export function ReportingLayout() {
                          parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
         }
 
-        // Format 3: DD/MM/YYYY HH:MM:SS (if day > 12)
+        // Format 3: DD/MM/YYYY HH:MM:SS (check if first number > 12, then it's day)
         match = timeStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
         if (match && parseInt(match[1]) > 12) {
           return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]),
@@ -316,22 +322,36 @@ export function ReportingLayout() {
 
         // Fallback: try native Date parsing
         const parsed = new Date(timeStr.replace(/\//g, '-'));
-        return isNaN(parsed.getTime()) ? new Date() : parsed;
+        if (!isNaN(parsed.getTime())) {
+          return parsed;
+        }
+
+        // Log failed parsing for debugging
+        console.warn('Failed to parse CDR date:', timeStr);
+        return null;
       };
 
       // Populate monthly data from records
       console.log('Processing', extensionRecords.length, 'extension records for monthly breakdown');
+      let parsedCount = 0;
+      let failedCount = 0;
 
       for (const record of extensionRecords) {
-        const recordDate = parseCdrDate(record.time);
+        const recordDate = parseCdrDate(record);
+        if (!recordDate) {
+          failedCount++;
+          continue; // Skip records we can't parse
+        }
+
         const monthKey = `${recordDate.getFullYear()}-${String(recordDate.getMonth() + 1).padStart(2, '0')}`;
 
         const monthData = monthlyDataMap.get(monthKey);
         if (monthData) {
-          const isInbound = record.call_type === 'Inbound' && (record.call_to === extNumber || record.call_to.includes(extNumber));
-          const isOutbound = record.call_type === 'Outbound' && (record.call_from === extNumber || record.call_from.includes(extNumber));
+          parsedCount++;
+          const isInbound = record.call_type === 'Inbound' && (record.call_to === extNumber || record.call_to?.includes(extNumber));
+          const isOutbound = record.call_type === 'Outbound' && (record.call_from === extNumber || record.call_from?.includes(extNumber));
           const isMissed = (record.disposition === 'NO ANSWER' || record.disposition === 'BUSY' || record.disposition === 'FAILED') &&
-            (record.call_to === extNumber || record.call_to.includes(extNumber));
+            (record.call_to === extNumber || record.call_to?.includes(extNumber));
           const duration = record.talk_duration || 0;
 
           if (isInbound) {
@@ -346,8 +366,13 @@ export function ReportingLayout() {
             monthData.missedCalls++;
           }
           monthData.totalMinutes += duration / 60;
+        } else {
+          // Record date doesn't match any initialized month - log for debugging
+          console.warn('Record date outside range:', monthKey, 'from time:', record.time, 'timestamp:', record.timestamp);
         }
       }
+
+      console.log('Monthly parsing: success:', parsedCount, 'failed:', failedCount);
 
       const monthlyData = Array.from(monthlyDataMap.values()).sort(
         (a, b) => a.monthKey.localeCompare(b.monthKey)

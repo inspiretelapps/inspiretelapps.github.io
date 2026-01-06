@@ -30,7 +30,7 @@ export function yeastarToPhones(contact: YeastarContact): ContactPhone[] {
 }
 
 /**
- * Convert our ContactPhone array to Yeastar phone fields format
+ * Convert our ContactPhone array to Yeastar phone fields format (for reading/display)
  * Explicitly sets empty strings for unused phone types so Yeastar clears them
  */
 export function phonesToYeastar(phones: ContactPhone[]): Record<string, string> {
@@ -50,6 +50,31 @@ export function phonesToYeastar(phones: ContactPhone[]): Record<string, string> 
   }
 
   return result;
+}
+
+// Mapping from our phone type to Yeastar's num_type for create/update API
+const PHONE_TYPE_TO_NUM_TYPE: Record<ContactPhoneType, string> = {
+  business: 'business_number',
+  business2: 'business_number2',
+  mobile: 'mobile_number',
+  mobile2: 'mobile_number2',
+  home: 'home_number',
+  home2: 'home_number2',
+  business_fax: 'business_fax',
+  home_fax: 'home_fax',
+  other: 'other_number',
+};
+
+/**
+ * Convert our ContactPhone array to Yeastar number_list format for create/update API
+ */
+export function phonesToYeastarNumberList(phones: ContactPhone[]): Array<{ num_type: string; number: string }> {
+  return phones
+    .filter((p) => p.number && p.number.trim())
+    .map((p) => ({
+      num_type: PHONE_TYPE_TO_NUM_TYPE[p.type] || 'other_number',
+      number: p.number.trim(),
+    }));
 }
 
 /**
@@ -222,14 +247,43 @@ export function yeastarContactToContact(yeastarContact: YeastarContact): Contact
 }
 
 /**
- * Convert our Contact to Yeastar format for API calls
+ * Split a full name into first and last name
  */
-export function contactToYeastarFormat(contact: Contact): Record<string, string | undefined> {
+function splitName(fullName: string): { first_name: string; last_name?: string } {
+  const trimmed = fullName.trim();
+  const parts = trimmed.split(/\s+/);
+
+  if (parts.length === 1) {
+    return { first_name: parts[0] };
+  }
+
+  // First part is first name, rest is last name
+  const firstName = parts[0];
+  const lastName = parts.slice(1).join(' ');
+
+  return { first_name: firstName, last_name: lastName || undefined };
+}
+
+/**
+ * Convert our Contact to Yeastar format for create/update API calls
+ * Uses first_name, last_name and number_list format required by POST endpoints
+ */
+export function contactToYeastarFormat(contact: Contact): {
+  first_name: string;
+  last_name?: string;
+  company?: string;
+  email?: string;
+  remark?: string;
+  number_list: Array<{ num_type: string; number: string }>;
+} {
+  const { first_name, last_name } = splitName(contact.name);
+
   return {
-    contact_name: contact.name,
+    first_name,
+    last_name,
     company: contact.company,
     email: contact.email,
     remark: contact.remark,
-    ...phonesToYeastar(contact.phones),
+    number_list: phonesToYeastarNumberList(contact.phones),
   };
 }

@@ -940,24 +940,22 @@ export async function getCompanyContact(id: number): Promise<YeastarContact | nu
   return null;
 }
 
+// Type for Yeastar contact write operations (create/update)
+interface YeastarContactWriteData {
+  first_name: string;
+  last_name?: string;
+  company?: string;
+  email?: string;
+  remark?: string;
+  number_list: Array<{ num_type: string; number: string }>;
+}
+
 /**
  * Create a new company contact in Yeastar
  */
-export async function createCompanyContact(contact: {
-  contact_name: string;
-  company?: string;
-  email?: string;
-  business?: string;
-  business2?: string;
-  mobile?: string;
-  mobile2?: string;
-  home?: string;
-  home2?: string;
-  business_fax?: string;
-  home_fax?: string;
-  other?: string;
-  remark?: string;
-}): Promise<{ success: boolean; id?: number }> {
+export async function createCompanyContact(
+  contact: YeastarContactWriteData
+): Promise<{ success: boolean; id?: number }> {
   const result = await apiRequest<{ id: number }>('company_contact/create', 'POST', contact);
 
   if (result && result.errcode === 0) {
@@ -972,21 +970,7 @@ export async function createCompanyContact(contact: {
  */
 export async function updateCompanyContact(
   id: number,
-  contact: Partial<{
-    contact_name: string;
-    company: string;
-    email: string;
-    business: string;
-    business2: string;
-    mobile: string;
-    mobile2: string;
-    home: string;
-    home2: string;
-    business_fax: string;
-    home_fax: string;
-    other: string;
-    remark: string;
-  }>
+  contact: YeastarContactWriteData
 ): Promise<boolean> {
   const result = await apiRequest('company_contact/update', 'POST', { id, ...contact });
   return result?.errcode === 0;

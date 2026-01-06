@@ -4,12 +4,9 @@ import {
   FileText,
   Download,
   Calendar,
-  Phone,
   PhoneIncoming,
   PhoneOutgoing,
-  PhoneMissed,
   Clock,
-  TrendingUp,
   BarChart3,
   RefreshCw,
   ChevronDown,
@@ -18,8 +15,8 @@ import {
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loader } from '@/components/ui/Loader';
-import { fetchExtensions, fetchCDR, fetchCallStats } from '@/services/api';
-import type { Extension, CallRecord, ExtensionReportData, MonthlyCallData } from '@/types';
+import { fetchExtensions, fetchCallStats, fetchCallStatsByType } from '@/services/api';
+import type { Extension, ExtensionReportData, MonthlyCallData } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -96,344 +93,174 @@ export function ReportingLayout() {
       const startFormats = getDateFormats(startDate, false);
       const endFormats = getDateFormats(endDate, true);
 
-      // Try to get call statistics using call_report API (more reliable)
-      let callStatsData = null;
-      let workingDateFormat = 0;
+      // Find working date format by testing call_report API
+      let workingFormatIndex = 0;
+      let formatFound = false;
 
-      for (let i = 0; i < startFormats.length; i++) {
+      for (let i = 0; i < startFormats.length && !formatFound; i++) {
         try {
-          const stats = await fetchCallStats([extId], startFormats[i], endFormats[i]);
-          if (stats && stats.length > 0) {
-            callStatsData = stats.find(s => s.ext_num === extNumber) || stats[0];
-            workingDateFormat = i;
-            console.log('Call stats API succeeded with format:', startFormats[i]);
-            break;
+          const testStats = await fetchCallStats([extId], startFormats[i], endFormats[i]);
+          if (testStats && testStats.length >= 0) {
+            workingFormatIndex = i;
+            formatFound = true;
+            console.log('Working date format found:', startFormats[i]);
           }
         } catch (err) {
-          console.warn(`Date format ${i} failed for call_report:`, startFormats[i]);
+          console.warn(`Date format ${i} failed:`, startFormats[i]);
         }
       }
 
-      // Fetch CDR data with pagination for monthly breakdown
-      let allRecords: CallRecord[] = [];
-      let page = 1;
-      let hasMore = true;
-      const pageSize = 300;
-      let useFilters = false;
-      let startTime = startFormats[workingDateFormat];
-      let endTime = endFormats[workingDateFormat];
-
-      // First, try to fetch with date filters using the working format
-      try {
-        const testResult = await fetchCDR(1, 10, {
-          startTime,
-          endTime,
-        });
-        // If we got here with data, filters work
-        if (testResult.data.length > 0) {
-          allRecords = [...testResult.data];
-          hasMore = testResult.hasMore;
-          page = 2;
-          useFilters = true;
-        }
-      } catch (filterError) {
-        console.warn('CDR date filter failed, will try other formats or fetch all');
+      if (!formatFound) {
+        toast.error('Unable to determine PBX date format. Please check PBX configuration.');
+        setLoading(false);
+        return;
       }
 
-      // If first format didn't work, try other formats
-      if (!useFilters && allRecords.length === 0) {
-        for (let i = 0; i < startFormats.length && !useFilters; i++) {
-          if (i === workingDateFormat) continue; // Already tried this one
-          try {
-            const testResult = await fetchCDR(1, 10, {
-              startTime: startFormats[i],
-              endTime: endFormats[i],
-            });
-            if (testResult.data.length > 0) {
-              allRecords = [...testResult.data];
-              hasMore = testResult.hasMore;
-              page = 2;
-              useFilters = true;
-              startTime = startFormats[i];
-              endTime = endFormats[i];
-              console.log('CDR API succeeded with format:', startFormats[i]);
-              break;
-            }
-          } catch (err) {
-            // Continue to next format
+      // Helper function to get month date range in working format
+      const getMonthDateRange = (year: number, month: number) => {
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+
+        const formatDate = (d: Date, isEndOfDay: boolean): string => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const time = isEndOfDay ? '23:59:59' : '00:00:00';
+
+          // Use the working format pattern
+          switch (workingFormatIndex) {
+            case 0: return `${y}/${m}/${day} ${time}`;
+            case 1: return `${m}/${day}/${y} ${time}`;
+            case 2: return `${day}/${m}/${y} ${time}`;
+            case 3: return `${y}-${m}-${day} ${time}`;
+            case 4: return `${y}/${m}/${day} ${isEndOfDay ? '11:59:59 PM' : '12:00:00 AM'}`;
+            case 5: return `${m}/${day}/${y} ${isEndOfDay ? '11:59:59 PM' : '12:00:00 AM'}`;
+            default: return `${y}/${m}/${day} ${time}`;
           }
-        }
-      }
+        };
 
-      // If date filters still don't work, fallback to unfiltered fetch
-      if (!useFilters) {
-        console.warn('CDR date filter failed for all formats, fetching all records');
-        toast('Fetching all records (API filter unavailable)', { icon: 'ℹ️' });
-      }
+        return {
+          start: formatDate(firstDay, false),
+          end: formatDate(lastDay, true),
+        };
+      };
 
-      // Continue fetching remaining pages
-      while (hasMore) {
-        try {
-          const result = await fetchCDR(
-            page,
-            pageSize,
-            useFilters ? { startTime, endTime } : undefined
-          );
-
-          allRecords = [...allRecords, ...result.data];
-          hasMore = result.hasMore && result.data.length === pageSize;
-          page++;
-
-          // Safety limit - more pages when not filtering
-          if (page > (useFilters ? 100 : 50)) break;
-        } catch (pageError) {
-          console.warn('Error fetching page', page, pageError);
-          break;
-        }
-      }
-
-      // If we fetched without filters, filter by date locally
-      if (!useFilters) {
-        const startDateObj = new Date(startDate);
-        startDateObj.setHours(0, 0, 0, 0);
-        const endDateObj = new Date(endDate);
-        endDateObj.setHours(23, 59, 59, 999);
-
-        allRecords = allRecords.filter((record) => {
-          // Parse date - try multiple formats
-          let recordDate: Date;
-          try {
-            // Try YYYY/MM/DD format first
-            recordDate = new Date(record.time.replace(/\//g, '-'));
-          } catch {
-            // Try MM/DD/YYYY format
-            const parts = record.time.split(/[\s\/\-]/);
-            if (parts.length >= 3) {
-              const [p1, p2, p3] = parts;
-              // Determine if MM/DD/YYYY or DD/MM/YYYY based on values
-              if (parseInt(p1) > 12) {
-                recordDate = new Date(`${p3}-${p2}-${p1}`);
-              } else if (parseInt(p3) > 31) {
-                recordDate = new Date(`${p3}-${p1}-${p2}`);
-              } else {
-                recordDate = new Date(record.time);
-              }
-            } else {
-              recordDate = new Date(record.time);
-            }
-          }
-          return recordDate >= startDateObj && recordDate <= endDateObj;
-        });
-      }
-
-      // Log CDR data status
-      console.log('=== CDR DEBUG INFO ===');
-      console.log('Total CDR records fetched:', allRecords.length);
-      console.log('Date filters used:', useFilters);
-      if (allRecords.length > 0) {
-        console.log('Sample record (first):', JSON.stringify(allRecords[0], null, 2));
-        console.log('Sample time field:', allRecords[0].time);
-        console.log('Sample timestamp field:', allRecords[0].timestamp);
-        console.log('Sample call_from:', allRecords[0].call_from);
-        console.log('Sample call_to:', allRecords[0].call_to);
-      }
-
-      // Filter records for the selected extension
-      const extensionRecords = allRecords.filter(
-        (record) =>
-          record.call_from === extNumber ||
-          record.call_to === extNumber ||
-          record.call_from?.includes(extNumber) ||
-          record.call_to?.includes(extNumber)
-      );
-
-      console.log('Extension records found:', extensionRecords.length, 'for extension', extNumber);
-      if (extensionRecords.length > 0 && extensionRecords.length < 5) {
-        console.log('First extension record:', JSON.stringify(extensionRecords[0], null, 2));
-      }
-
-      // Calculate statistics
-      const inboundCalls = extensionRecords.filter(
-        (r) => r.call_type === 'Inbound' && (r.call_to === extNumber || r.call_to.includes(extNumber))
-      );
-      const outboundCalls = extensionRecords.filter(
-        (r) => r.call_type === 'Outbound' && (r.call_from === extNumber || r.call_from.includes(extNumber))
-      );
-      const missedCalls = extensionRecords.filter(
-        (r) =>
-          (r.disposition === 'NO ANSWER' || r.disposition === 'BUSY' || r.disposition === 'FAILED') &&
-          (r.call_to === extNumber || r.call_to.includes(extNumber))
-      );
-      const answeredCalls = extensionRecords.filter(
-        (r) => r.disposition === 'ANSWERED'
-      );
-
-      const inboundSeconds = inboundCalls.reduce((sum, r) => sum + (r.talk_duration || 0), 0);
-      const outboundSeconds = outboundCalls.reduce((sum, r) => sum + (r.talk_duration || 0), 0);
-      const totalSeconds = extensionRecords.reduce((sum, r) => sum + (r.talk_duration || 0), 0);
-
-      // Calculate monthly data
-      const monthlyDataMap = new Map<string, MonthlyCallData>();
-
-      // Initialize all months in the range
+      // Build list of months in the range
+      const months: Array<{ year: number; month: number; key: string; label: string }> = [];
       const start = new Date(startDate);
       const end = new Date(endDate);
       let current = new Date(start.getFullYear(), start.getMonth(), 1);
 
       while (current <= end) {
         const monthKey = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
-        const monthName = current.toLocaleString('default', { month: 'short', year: 'numeric' });
-        monthlyDataMap.set(monthKey, {
-          month: monthName,
-          monthKey,
-          inboundCalls: 0,
-          outboundCalls: 0,
-          missedCalls: 0,
-          inboundMinutes: 0,
-          outboundMinutes: 0,
-          totalMinutes: 0,
+        const monthLabel = current.toLocaleString('default', { month: 'short', year: 'numeric' });
+        months.push({
+          year: current.getFullYear(),
+          month: current.getMonth(),
+          key: monthKey,
+          label: monthLabel,
         });
         current.setMonth(current.getMonth() + 1);
       }
 
-      // Helper function to parse CDR date - uses timestamp if available, otherwise parses time string
-      const parseCdrDate = (record: CallRecord): Date | null => {
-        // Prefer Unix timestamp if available (most reliable)
-        if (record.timestamp && typeof record.timestamp === 'number') {
-          return new Date(record.timestamp * 1000); // Convert seconds to milliseconds
+      console.log('=== FETCHING DATA FROM CALL_REPORT API ===');
+      console.log('Extension:', extNumber, 'ID:', extId);
+      console.log('Months to fetch:', months.map(m => m.key));
+
+      // Fetch data for each month using the call_report API
+      // This matches Yeastar's Extension Call Statistics Report exactly
+      const monthlyDataMap = new Map<string, MonthlyCallData>();
+
+      // Totals - matching Yeastar's format: Answered / No Answer / Total
+      let totalInboundAnswered = 0;
+      let totalInboundNoAnswer = 0;
+      let totalOutboundAnswered = 0;
+      let totalOutboundNoAnswer = 0;
+      let totalTalkDuration = 0; // in seconds
+
+      for (const monthInfo of months) {
+        const { start: monthStart, end: monthEnd } = getMonthDateRange(monthInfo.year, monthInfo.month);
+
+        console.log(`Fetching ${monthInfo.label}: ${monthStart} to ${monthEnd}`);
+
+        // Fetch inbound and outbound stats separately for accuracy
+        let inboundStats = null;
+        let outboundStats = null;
+
+        try {
+          const [inboundResult, outboundResult] = await Promise.all([
+            fetchCallStatsByType([extId], monthStart, monthEnd, 'Inbound'),
+            fetchCallStatsByType([extId], monthStart, monthEnd, 'Outbound'),
+          ]);
+
+          inboundStats = inboundResult.find(s => s.ext_num === extNumber) || inboundResult[0] || null;
+          outboundStats = outboundResult.find(s => s.ext_num === extNumber) || outboundResult[0] || null;
+        } catch (err) {
+          console.warn(`Failed to fetch stats for ${monthInfo.label}:`, err);
         }
 
-        const timeStr = record.time;
-        if (!timeStr) return null;
+        // Extract data from API response - matching Yeastar's format
+        const inboundAnswered = inboundStats?.answered_calls || 0;
+        const inboundNoAnswer = (inboundStats?.no_answer_calls || 0) +
+                                (inboundStats?.busy_calls || 0) +
+                                (inboundStats?.failed_calls || 0);
+        const inboundTotal = inboundAnswered + inboundNoAnswer;
 
-        // Try parsing different formats
-        // Format 1: YYYY/MM/DD HH:MM:SS or YYYY-MM-DD HH:MM:SS
-        let match = timeStr.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})/);
-        if (match) {
-          return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]),
-                         parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
-        }
+        const outboundAnswered = outboundStats?.answered_calls || 0;
+        const outboundNoAnswer = (outboundStats?.no_answer_calls || 0) +
+                                 (outboundStats?.busy_calls || 0) +
+                                 (outboundStats?.failed_calls || 0);
+        const outboundTotal = outboundAnswered + outboundNoAnswer;
 
-        // Format 2: MM/DD/YYYY HH:MM:SS
-        match = timeStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
-        if (match) {
-          return new Date(parseInt(match[3]), parseInt(match[1]) - 1, parseInt(match[2]),
-                         parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
-        }
+        const monthTalkDuration = (inboundStats?.total_talking_time || 0) +
+                                  (outboundStats?.total_talking_time || 0);
 
-        // Format 3: DD/MM/YYYY HH:MM:SS (check if first number > 12, then it's day)
-        match = timeStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
-        if (match && parseInt(match[1]) > 12) {
-          return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]),
-                         parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
-        }
+        monthlyDataMap.set(monthInfo.key, {
+          month: monthInfo.label,
+          monthKey: monthInfo.key,
+          inboundAnswered,
+          inboundNoAnswer,
+          inboundTotal,
+          outboundAnswered,
+          outboundNoAnswer,
+          outboundTotal,
+          totalTalkDuration: monthTalkDuration,
+        });
 
-        // Fallback: try native Date parsing
-        const parsed = new Date(timeStr.replace(/\//g, '-'));
-        if (!isNaN(parsed.getTime())) {
-          return parsed;
-        }
+        // Accumulate totals
+        totalInboundAnswered += inboundAnswered;
+        totalInboundNoAnswer += inboundNoAnswer;
+        totalOutboundAnswered += outboundAnswered;
+        totalOutboundNoAnswer += outboundNoAnswer;
+        totalTalkDuration += monthTalkDuration;
 
-        // Log failed parsing for debugging
-        console.warn('Failed to parse CDR date:', timeStr);
-        return null;
-      };
-
-      // Populate monthly data from records
-      console.log('=== MONTHLY DATA DEBUG ===');
-      console.log('Processing', extensionRecords.length, 'extension records for monthly breakdown');
-      console.log('Initialized months:', Array.from(monthlyDataMap.keys()));
-      let parsedCount = 0;
-      let failedCount = 0;
-      let outsideRangeCount = 0;
-
-      for (const record of extensionRecords) {
-        const recordDate = parseCdrDate(record);
-        if (!recordDate) {
-          failedCount++;
-          continue; // Skip records we can't parse
-        }
-
-        const monthKey = `${recordDate.getFullYear()}-${String(recordDate.getMonth() + 1).padStart(2, '0')}`;
-
-        const monthData = monthlyDataMap.get(monthKey);
-        if (monthData) {
-          parsedCount++;
-          const isInbound = record.call_type === 'Inbound' && (record.call_to === extNumber || record.call_to?.includes(extNumber));
-          const isOutbound = record.call_type === 'Outbound' && (record.call_from === extNumber || record.call_from?.includes(extNumber));
-          const isMissed = (record.disposition === 'NO ANSWER' || record.disposition === 'BUSY' || record.disposition === 'FAILED') &&
-            (record.call_to === extNumber || record.call_to?.includes(extNumber));
-          const duration = record.talk_duration || 0;
-
-          if (isInbound) {
-            monthData.inboundCalls++;
-            monthData.inboundMinutes += duration / 60;
-          }
-          if (isOutbound) {
-            monthData.outboundCalls++;
-            monthData.outboundMinutes += duration / 60;
-          }
-          if (isMissed) {
-            monthData.missedCalls++;
-          }
-          monthData.totalMinutes += duration / 60;
-        } else {
-          // Record date doesn't match any initialized month
-          outsideRangeCount++;
-          if (outsideRangeCount <= 3) {
-            console.warn('Record date outside range:', monthKey, 'from time:', record.time, 'timestamp:', record.timestamp);
-          }
-        }
+        console.log(`${monthInfo.label}: Inbound(${inboundAnswered}/${inboundNoAnswer}/${inboundTotal}), Outbound(${outboundAnswered}/${outboundNoAnswer}/${outboundTotal}), Duration=${monthTalkDuration}s`);
       }
-
-      console.log('Monthly parsing - success:', parsedCount, 'failed:', failedCount, 'outside range:', outsideRangeCount);
 
       const monthlyData = Array.from(monthlyDataMap.values()).sort(
         (a, b) => a.monthKey.localeCompare(b.monthKey)
       );
 
-      console.log('Monthly data calculated:', monthlyData);
-      console.log('Inbound calls:', inboundCalls.length, 'Outbound:', outboundCalls.length, 'Missed:', missedCalls.length);
+      const totalAnsweredCalls = totalInboundAnswered + totalOutboundAnswered;
 
-      // Use call_report API data if available (more reliable), otherwise use CDR calculations
-      let summary;
-      if (callStatsData) {
-        // Use data from call_report API
-        const answeredFromApi = callStatsData.answered_calls || 0;
-        const noAnswerFromApi = callStatsData.no_answer_calls || 0;
-        const busyFromApi = callStatsData.busy_calls || 0;
-        const failedFromApi = callStatsData.failed_calls || 0;
-        const totalTalkTime = callStatsData.total_talking_time || 0;
+      console.log('=== TOTALS ===');
+      console.log(`Inbound: ${totalInboundAnswered}/${totalInboundNoAnswer}/${totalInboundAnswered + totalInboundNoAnswer}`);
+      console.log(`Outbound: ${totalOutboundAnswered}/${totalOutboundNoAnswer}/${totalOutboundAnswered + totalOutboundNoAnswer}`);
+      console.log(`Total Talk Duration: ${totalTalkDuration}s`);
 
-        summary = {
-          totalInboundCalls: inboundCalls.length || answeredFromApi,
-          totalOutboundCalls: outboundCalls.length,
-          totalMissedCalls: noAnswerFromApi + busyFromApi + failedFromApi,
-          inboundMinutes: Math.round(inboundSeconds / 60 * 10) / 10,
-          outboundMinutes: Math.round(outboundSeconds / 60 * 10) / 10,
-          totalMinutes: Math.round(totalTalkTime / 60 * 10) / 10 || Math.round(totalSeconds / 60 * 10) / 10,
-          answeredCalls: answeredFromApi || answeredCalls.length,
-          averageCallDuration: answeredFromApi > 0
-            ? Math.round(totalTalkTime / answeredFromApi)
-            : (answeredCalls.length > 0 ? Math.round(totalSeconds / answeredCalls.length) : 0),
-        };
-        console.log('Using call_report API data for summary');
-      } else {
-        // Use CDR-calculated data
-        summary = {
-          totalInboundCalls: inboundCalls.length,
-          totalOutboundCalls: outboundCalls.length,
-          totalMissedCalls: missedCalls.length,
-          inboundMinutes: Math.round(inboundSeconds / 60 * 10) / 10,
-          outboundMinutes: Math.round(outboundSeconds / 60 * 10) / 10,
-          totalMinutes: Math.round(totalSeconds / 60 * 10) / 10,
-          answeredCalls: answeredCalls.length,
-          averageCallDuration: answeredCalls.length > 0
-            ? Math.round(totalSeconds / answeredCalls.length)
-            : 0,
-        };
-        console.log('Using CDR-calculated data for summary');
-      }
+      // Build summary matching Yeastar's format
+      const summary = {
+        inboundAnswered: totalInboundAnswered,
+        inboundNoAnswer: totalInboundNoAnswer,
+        inboundTotal: totalInboundAnswered + totalInboundNoAnswer,
+        outboundAnswered: totalOutboundAnswered,
+        outboundNoAnswer: totalOutboundNoAnswer,
+        outboundTotal: totalOutboundAnswered + totalOutboundNoAnswer,
+        totalTalkDuration,
+        averageCallDuration: totalAnsweredCalls > 0
+          ? Math.round(totalTalkDuration / totalAnsweredCalls)
+          : 0,
+      };
 
       const report: ExtensionReportData = {
         extension: selectedExtension,
@@ -510,15 +337,6 @@ export function ReportingLayout() {
     }
   };
 
-  const formatMinutes = (minutes: number): string => {
-    if (minutes < 60) {
-      return `${minutes.toFixed(1)} min`;
-    }
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.round(minutes % 60);
-    return `${hours}h ${mins}m`;
-  };
-
   const formatDuration = (seconds: number): string => {
     if (seconds < 60) {
       return `${seconds}s`;
@@ -526,6 +344,14 @@ export function ReportingLayout() {
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${minutes}m ${secs}s`;
+  };
+
+  // Format duration as HH:MM:SS (like Yeastar)
+  const formatDurationHMS = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
   return (
@@ -744,51 +570,76 @@ export function ReportingLayout() {
             </div>
           </Card>
 
-          {/* Summary Stats Cards - Row 1 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard
-              icon={<PhoneIncoming className="w-6 h-6" />}
-              label="Inbound Calls"
-              value={reportData.summary.totalInboundCalls}
-              subValue={formatMinutes(reportData.summary.inboundMinutes)}
-              color="green"
-            />
-            <StatCard
-              icon={<PhoneOutgoing className="w-6 h-6" />}
-              label="Outbound Calls"
-              value={reportData.summary.totalOutboundCalls}
-              subValue={formatMinutes(reportData.summary.outboundMinutes)}
-              color="blue"
-            />
-            <StatCard
-              icon={<PhoneMissed className="w-6 h-6" />}
-              label="Missed Calls"
-              value={reportData.summary.totalMissedCalls}
-              subValue="unanswered"
-              color="red"
-            />
-          </div>
+          {/* Summary Stats - Yeastar Style */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Inbound Summary */}
+            <Card>
+              <div className="flex items-start gap-3 mb-4">
+                <div className="p-2 sm:p-3 rounded-xl flex-shrink-0 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
+                  <PhoneIncoming className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Inbound</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.summary.inboundTotal}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2">
+                  <span className="text-gray-500 dark:text-gray-400">Answered</span>
+                  <p className="font-semibold text-green-600 dark:text-green-400">{reportData.summary.inboundAnswered}</p>
+                </div>
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2">
+                  <span className="text-gray-500 dark:text-gray-400">No Answer</span>
+                  <p className="font-semibold text-red-600 dark:text-red-400">{reportData.summary.inboundNoAnswer}</p>
+                </div>
+              </div>
+            </Card>
 
-          {/* Summary Stats Cards - Row 2 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard
-              icon={<Clock className="w-6 h-6" />}
-              label="Total Talk Time"
-              value={formatMinutes(reportData.summary.totalMinutes)}
-              color="purple"
-            />
-            <StatCard
-              icon={<TrendingUp className="w-6 h-6" />}
-              label="Avg Call Duration"
-              value={formatDuration(reportData.summary.averageCallDuration)}
-              color="orange"
-            />
-            <StatCard
-              icon={<Phone className="w-6 h-6" />}
-              label="Answered Calls"
-              value={reportData.summary.answeredCalls}
-              color="green"
-            />
+            {/* Outbound Summary */}
+            <Card>
+              <div className="flex items-start gap-3 mb-4">
+                <div className="p-2 sm:p-3 rounded-xl flex-shrink-0 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                  <PhoneOutgoing className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Outbound</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.summary.outboundTotal}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-2">
+                  <span className="text-gray-500 dark:text-gray-400">Answered</span>
+                  <p className="font-semibold text-green-600 dark:text-green-400">{reportData.summary.outboundAnswered}</p>
+                </div>
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-2">
+                  <span className="text-gray-500 dark:text-gray-400">No Answer</span>
+                  <p className="font-semibold text-red-600 dark:text-red-400">{reportData.summary.outboundNoAnswer}</p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Talk Time Summary */}
+            <Card>
+              <div className="flex items-start gap-3 mb-4">
+                <div className="p-2 sm:p-3 rounded-xl flex-shrink-0 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Total Talk Duration</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{formatDurationHMS(reportData.summary.totalTalkDuration)}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-2">
+                  <span className="text-gray-500 dark:text-gray-400">Avg Duration</span>
+                  <p className="font-semibold text-purple-600 dark:text-purple-400">{formatDuration(reportData.summary.averageCallDuration)}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
+                  <span className="text-gray-500 dark:text-gray-400">Total Answered</span>
+                  <p className="font-semibold text-gray-900 dark:text-white">{reportData.summary.inboundAnswered + reportData.summary.outboundAnswered}</p>
+                </div>
+              </div>
+            </Card>
           </div>
 
           {/* Monthly Comparison Chart */}
@@ -801,37 +652,36 @@ export function ReportingLayout() {
             </Card>
           )}
 
-          {/* Monthly Details Table */}
+          {/* Monthly Details Table - Yeastar Style */}
           {reportData.monthlyData.length > 0 && (
             <Card>
               <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                 Monthly Breakdown
               </h4>
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-200 dark:border-gray-700">
-                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-500 dark:text-gray-400">
+                    <tr className="border-b-2 border-gray-300 dark:border-gray-600">
+                      <th rowSpan={2} className="text-left py-2 px-3 text-sm font-semibold text-gray-700 dark:text-gray-300 align-bottom">
                         Month
                       </th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-500 dark:text-gray-400">
+                      <th colSpan={3} className="text-center py-2 px-3 text-sm font-semibold text-green-700 dark:text-green-400 border-b border-gray-200 dark:border-gray-700">
                         Inbound
                       </th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-500 dark:text-gray-400">
+                      <th colSpan={3} className="text-center py-2 px-3 text-sm font-semibold text-blue-700 dark:text-blue-400 border-b border-gray-200 dark:border-gray-700">
                         Outbound
                       </th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-500 dark:text-gray-400">
-                        Missed
+                      <th rowSpan={2} className="text-center py-2 px-3 text-sm font-semibold text-gray-700 dark:text-gray-300 align-bottom">
+                        Total Talk<br />Duration
                       </th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-500 dark:text-gray-400">
-                        Inbound Min
-                      </th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-500 dark:text-gray-400">
-                        Outbound Min
-                      </th>
-                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-500 dark:text-gray-400">
-                        Total Min
-                      </th>
+                    </tr>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">Answered</th>
+                      <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">No Answer</th>
+                      <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">Total</th>
+                      <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">Answered</th>
+                      <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">No Answer</th>
+                      <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">Total</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -843,50 +693,62 @@ export function ReportingLayout() {
                         transition={{ delay: index * 0.05 }}
                         className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                       >
-                        <td className="py-3 px-4 font-medium text-gray-900 dark:text-white">
+                        <td className="py-3 px-3 font-medium text-gray-900 dark:text-white">
                           {month.month}
                         </td>
-                        <td className="py-3 px-4 text-right text-green-600 dark:text-green-400 font-medium">
-                          {month.inboundCalls}
+                        {/* Inbound */}
+                        <td className="py-3 px-2 text-center text-green-600 dark:text-green-400">
+                          {month.inboundAnswered}
                         </td>
-                        <td className="py-3 px-4 text-right text-blue-600 dark:text-blue-400 font-medium">
-                          {month.outboundCalls}
+                        <td className="py-3 px-2 text-center text-red-500 dark:text-red-400">
+                          {month.inboundNoAnswer}
                         </td>
-                        <td className="py-3 px-4 text-right text-red-600 dark:text-red-400 font-medium">
-                          {month.missedCalls}
+                        <td className="py-3 px-2 text-center font-medium text-gray-700 dark:text-gray-300">
+                          {month.inboundTotal}
                         </td>
-                        <td className="py-3 px-4 text-right text-gray-600 dark:text-gray-400">
-                          {month.inboundMinutes.toFixed(1)}
+                        {/* Outbound */}
+                        <td className="py-3 px-2 text-center text-green-600 dark:text-green-400">
+                          {month.outboundAnswered}
                         </td>
-                        <td className="py-3 px-4 text-right text-gray-600 dark:text-gray-400">
-                          {month.outboundMinutes.toFixed(1)}
+                        <td className="py-3 px-2 text-center text-red-500 dark:text-red-400">
+                          {month.outboundNoAnswer}
                         </td>
-                        <td className="py-3 px-4 text-right font-medium text-gray-900 dark:text-white">
-                          {month.totalMinutes.toFixed(1)}
+                        <td className="py-3 px-2 text-center font-medium text-gray-700 dark:text-gray-300">
+                          {month.outboundTotal}
+                        </td>
+                        {/* Duration */}
+                        <td className="py-3 px-3 text-center font-medium text-gray-900 dark:text-white">
+                          {formatDurationHMS(month.totalTalkDuration)}
                         </td>
                       </motion.tr>
                     ))}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-gray-50 dark:bg-gray-800/50 font-semibold">
-                      <td className="py-3 px-4 text-gray-900 dark:text-white">Total</td>
-                      <td className="py-3 px-4 text-right text-green-600 dark:text-green-400">
-                        {reportData.summary.totalInboundCalls}
+                    <tr className="bg-gray-50 dark:bg-gray-800/50 font-semibold border-t-2 border-gray-300 dark:border-gray-600">
+                      <td className="py-3 px-3 text-gray-900 dark:text-white">Total</td>
+                      {/* Inbound Totals */}
+                      <td className="py-3 px-2 text-center text-green-600 dark:text-green-400">
+                        {reportData.summary.inboundAnswered}
                       </td>
-                      <td className="py-3 px-4 text-right text-blue-600 dark:text-blue-400">
-                        {reportData.summary.totalOutboundCalls}
+                      <td className="py-3 px-2 text-center text-red-500 dark:text-red-400">
+                        {reportData.summary.inboundNoAnswer}
                       </td>
-                      <td className="py-3 px-4 text-right text-red-600 dark:text-red-400">
-                        {reportData.summary.totalMissedCalls}
+                      <td className="py-3 px-2 text-center text-gray-700 dark:text-gray-300">
+                        {reportData.summary.inboundTotal}
                       </td>
-                      <td className="py-3 px-4 text-right text-gray-600 dark:text-gray-400">
-                        {reportData.summary.inboundMinutes.toFixed(1)}
+                      {/* Outbound Totals */}
+                      <td className="py-3 px-2 text-center text-green-600 dark:text-green-400">
+                        {reportData.summary.outboundAnswered}
                       </td>
-                      <td className="py-3 px-4 text-right text-gray-600 dark:text-gray-400">
-                        {reportData.summary.outboundMinutes.toFixed(1)}
+                      <td className="py-3 px-2 text-center text-red-500 dark:text-red-400">
+                        {reportData.summary.outboundNoAnswer}
                       </td>
-                      <td className="py-3 px-4 text-right text-gray-900 dark:text-white">
-                        {reportData.summary.totalMinutes.toFixed(1)}
+                      <td className="py-3 px-2 text-center text-gray-700 dark:text-gray-300">
+                        {reportData.summary.outboundTotal}
+                      </td>
+                      {/* Duration Total */}
+                      <td className="py-3 px-3 text-center text-gray-900 dark:text-white">
+                        {formatDurationHMS(reportData.summary.totalTalkDuration)}
                       </td>
                     </tr>
                   </tfoot>
@@ -925,42 +787,6 @@ export function ReportingLayout() {
   );
 }
 
-// Stat Card Component
-interface StatCardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  subValue?: string;
-  color: 'green' | 'blue' | 'red' | 'purple' | 'orange';
-}
-
-function StatCard({ icon, label, value, subValue, color }: StatCardProps) {
-  const colorClasses = {
-    green: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
-    blue: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-    red: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-    purple: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
-    orange: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
-  };
-
-  return (
-    <Card>
-      <div className="flex items-start gap-3">
-        <div className={`p-2 sm:p-3 rounded-xl flex-shrink-0 ${colorClasses[color]}`}>
-          {icon}
-        </div>
-        <div className="flex-1">
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{label}</p>
-          <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-          {subValue && (
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{subValue}</p>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
-}
-
 // Monthly Chart Component
 interface MonthlyChartProps {
   data: MonthlyCallData[];
@@ -969,17 +795,18 @@ interface MonthlyChartProps {
 function MonthlyChart({ data }: MonthlyChartProps) {
   if (data.length === 0) return null;
 
+  // Use totals for the chart
   const maxCalls = Math.max(
-    ...data.map((d) => Math.max(d.inboundCalls, d.outboundCalls, d.missedCalls))
+    ...data.map((d) => Math.max(d.inboundTotal, d.outboundTotal))
   );
   const chartHeight = 200;
   const chartWidth = 800;
   const padding = { top: 20, right: 20, bottom: 60, left: 50 };
   const barWidth = Math.min(
-    (chartWidth - padding.left - padding.right) / data.length / 4,
-    30
+    (chartWidth - padding.left - padding.right) / data.length / 3,
+    35
   );
-  const groupWidth = barWidth * 3 + 20;
+  const groupWidth = barWidth * 2 + 15;
 
   const scale = maxCalls > 0 ? (chartHeight - padding.top - padding.bottom) / maxCalls : 0;
 
@@ -1020,41 +847,32 @@ function MonthlyChart({ data }: MonthlyChartProps) {
 
         {/* Bars */}
         {data.map((month, index) => {
-          const x = padding.left + index * groupWidth + groupWidth / 2 - (barWidth * 1.5 + 5);
+          const x = padding.left + index * groupWidth + groupWidth / 2 - (barWidth + 2.5);
           const baseY = chartHeight - padding.bottom;
 
           return (
             <g key={month.monthKey}>
-              {/* Inbound Bar */}
+              {/* Inbound Total Bar */}
               <rect
                 x={x}
-                y={baseY - month.inboundCalls * scale}
+                y={baseY - month.inboundTotal * scale}
                 width={barWidth}
-                height={month.inboundCalls * scale || 1}
+                height={month.inboundTotal * scale || 1}
                 fill="#22c55e"
                 rx={2}
               />
-              {/* Outbound Bar */}
+              {/* Outbound Total Bar */}
               <rect
                 x={x + barWidth + 5}
-                y={baseY - month.outboundCalls * scale}
+                y={baseY - month.outboundTotal * scale}
                 width={barWidth}
-                height={month.outboundCalls * scale || 1}
+                height={month.outboundTotal * scale || 1}
                 fill="#3b82f6"
-                rx={2}
-              />
-              {/* Missed Bar */}
-              <rect
-                x={x + (barWidth + 5) * 2}
-                y={baseY - month.missedCalls * scale}
-                width={barWidth}
-                height={month.missedCalls * scale || 1}
-                fill="#ef4444"
                 rx={2}
               />
               {/* Month Label */}
               <text
-                x={x + barWidth * 1.5 + 5}
+                x={x + barWidth + 2.5}
                 y={baseY + 20}
                 textAnchor="middle"
                 className="fill-current text-gray-600 dark:text-gray-400"
@@ -1067,18 +885,14 @@ function MonthlyChart({ data }: MonthlyChartProps) {
         })}
 
         {/* Legend */}
-        <g transform={`translate(${chartWidth - 180}, ${chartHeight - 10})`}>
+        <g transform={`translate(${chartWidth - 150}, ${chartHeight - 10})`}>
           <rect x={0} y={0} width={12} height={12} fill="#22c55e" rx={2} />
           <text x={16} y={10} className="fill-current text-gray-600 dark:text-gray-400" fontSize="11">
             Inbound
           </text>
-          <rect x={60} y={0} width={12} height={12} fill="#3b82f6" rx={2} />
-          <text x={76} y={10} className="fill-current text-gray-600 dark:text-gray-400" fontSize="11">
+          <rect x={70} y={0} width={12} height={12} fill="#3b82f6" rx={2} />
+          <text x={86} y={10} className="fill-current text-gray-600 dark:text-gray-400" fontSize="11">
             Outbound
-          </text>
-          <rect x={130} y={0} width={12} height={12} fill="#ef4444" rx={2} />
-          <text x={146} y={10} className="fill-current text-gray-600 dark:text-gray-400" fontSize="11">
-            Missed
           </text>
         </g>
       </svg>

@@ -459,6 +459,30 @@ export async function fetchCallStats(
 }
 
 /**
+ * Fetch call statistics by communication type (Inbound/Outbound)
+ * This provides more accurate data matching Yeastar's Extension Call Statistics Report
+ */
+export async function fetchCallStatsByType(
+  extensionIds: string[],
+  startTime: string,
+  endTime: string,
+  communicationType: 'Inbound' | 'Outbound'
+): Promise<CallStats[]> {
+  if (extensionIds.length === 0) return [];
+
+  const endpoint = `call_report/list?type=extcallstatistics&start_time=${encodeURIComponent(
+    startTime
+  )}&end_time=${encodeURIComponent(endTime)}&ext_id_list=${extensionIds.join(',')}&communication_type=${communicationType}`;
+
+  const result = await apiRequest<any>(endpoint);
+
+  if (result && result.errcode === 0) {
+    return ((result as any).ext_call_statistics_list || result.data || []) as CallStats[];
+  }
+  return [];
+}
+
+/**
  * Fetch call detail records (CDR)
  */
 export async function fetchCDR(

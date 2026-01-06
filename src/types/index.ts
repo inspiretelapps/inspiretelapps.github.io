@@ -306,14 +306,17 @@ export interface ExtensionReportData {
   extension: Extension;
   period: { startDate: string; endDate: string };
   summary: {
-    totalInboundCalls: number;
-    totalOutboundCalls: number;
-    totalMissedCalls: number;
-    inboundMinutes: number;
-    outboundMinutes: number;
-    totalMinutes: number;
-    answeredCalls: number;
-    averageCallDuration: number;
+    // Inbound stats
+    inboundAnswered: number;
+    inboundNoAnswer: number;
+    inboundTotal: number;
+    // Outbound stats
+    outboundAnswered: number;
+    outboundNoAnswer: number;
+    outboundTotal: number;
+    // Talk time
+    totalTalkDuration: number; // in seconds
+    averageCallDuration: number; // in seconds
   };
   monthlyData: MonthlyCallData[];
 }
@@ -321,10 +324,14 @@ export interface ExtensionReportData {
 export interface MonthlyCallData {
   month: string; // "Jan 2025", "Feb 2025", etc.
   monthKey: string; // "2025-01", "2025-02", etc.
-  inboundCalls: number;
-  outboundCalls: number;
-  missedCalls: number;
-  inboundMinutes: number;
-  outboundMinutes: number;
-  totalMinutes: number;
+  // Inbound
+  inboundAnswered: number;
+  inboundNoAnswer: number;
+  inboundTotal: number;
+  // Outbound
+  outboundAnswered: number;
+  outboundNoAnswer: number;
+  outboundTotal: number;
+  // Talk time
+  totalTalkDuration: number; // in seconds
 }

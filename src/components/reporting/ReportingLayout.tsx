@@ -227,14 +227,22 @@ export function ReportingLayout() {
         });
       }
 
+      // Log CDR data status
+      console.log('Total CDR records fetched:', allRecords.length);
+      if (allRecords.length > 0) {
+        console.log('Sample record:', allRecords[0]);
+      }
+
       // Filter records for the selected extension
       const extensionRecords = allRecords.filter(
         (record) =>
           record.call_from === extNumber ||
           record.call_to === extNumber ||
-          record.call_from.includes(extNumber) ||
-          record.call_to.includes(extNumber)
+          record.call_from?.includes(extNumber) ||
+          record.call_to?.includes(extNumber)
       );
+
+      console.log('Extension records found:', extensionRecords.length, 'for extension', extNumber);
 
       // Calculate statistics
       const inboundCalls = extensionRecords.filter(
@@ -280,9 +288,42 @@ export function ReportingLayout() {
         current.setMonth(current.getMonth() + 1);
       }
 
+      // Helper function to parse CDR date in various formats
+      const parseCdrDate = (timeStr: string): Date => {
+        if (!timeStr) return new Date();
+
+        // Try parsing different formats
+        // Format 1: YYYY/MM/DD HH:MM:SS or YYYY-MM-DD HH:MM:SS
+        let match = timeStr.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+        if (match) {
+          return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]),
+                         parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
+        }
+
+        // Format 2: MM/DD/YYYY HH:MM:SS
+        match = timeStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+        if (match) {
+          return new Date(parseInt(match[3]), parseInt(match[1]) - 1, parseInt(match[2]),
+                         parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
+        }
+
+        // Format 3: DD/MM/YYYY HH:MM:SS (if day > 12)
+        match = timeStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+        if (match && parseInt(match[1]) > 12) {
+          return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]),
+                         parseInt(match[4]), parseInt(match[5]), parseInt(match[6]));
+        }
+
+        // Fallback: try native Date parsing
+        const parsed = new Date(timeStr.replace(/\//g, '-'));
+        return isNaN(parsed.getTime()) ? new Date() : parsed;
+      };
+
       // Populate monthly data from records
+      console.log('Processing', extensionRecords.length, 'extension records for monthly breakdown');
+
       for (const record of extensionRecords) {
-        const recordDate = new Date(record.time.replace(/\//g, '-'));
+        const recordDate = parseCdrDate(record.time);
         const monthKey = `${recordDate.getFullYear()}-${String(recordDate.getMonth() + 1).padStart(2, '0')}`;
 
         const monthData = monthlyDataMap.get(monthKey);
@@ -311,6 +352,9 @@ export function ReportingLayout() {
       const monthlyData = Array.from(monthlyDataMap.values()).sort(
         (a, b) => a.monthKey.localeCompare(b.monthKey)
       );
+
+      console.log('Monthly data calculated:', monthlyData);
+      console.log('Inbound calls:', inboundCalls.length, 'Outbound:', outboundCalls.length, 'Missed:', missedCalls.length);
 
       // Use call_report API data if available (more reliable), otherwise use CDR calculations
       let summary;
@@ -374,12 +418,19 @@ export function ReportingLayout() {
 
     setExportingPdf(true);
     try {
+      // Hide elements that shouldn't appear in PDF
+      const hideElements = reportRef.current.querySelectorAll('.pdf-hide');
+      hideElements.forEach(el => (el as HTMLElement).style.display = 'none');
+
       const canvas = await html2canvas(reportRef.current, {
         scale: 2,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
       });
+
+      // Restore hidden elements
+      hideElements.forEach(el => (el as HTMLElement).style.display = '');
 
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({
@@ -637,6 +688,7 @@ export function ReportingLayout() {
                 onClick={exportToPdf}
                 disabled={exportingPdf}
                 variant="secondary"
+                className="pdf-hide"
               >
                 {exportingPdf ? (
                   <>
@@ -889,13 +941,13 @@ function StatCard({ icon, label, value, subValue, color }: StatCardProps) {
 
   return (
     <Card>
-      <div className="flex items-start gap-4">
-        <div className={`p-3 rounded-xl ${colorClasses[color]}`}>
+      <div className="flex items-start gap-3">
+        <div className={`p-2 sm:p-3 rounded-xl flex-shrink-0 ${colorClasses[color]}`}>
           {icon}
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{label}</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+        <div className="flex-1">
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{label}</p>
+          <p className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
           {subValue && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{subValue}</p>
           )}

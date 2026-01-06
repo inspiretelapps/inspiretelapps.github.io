@@ -14,7 +14,6 @@ import {
   RefreshCw,
   ChevronDown,
   User,
-  Activity,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -228,9 +227,15 @@ export function ReportingLayout() {
       }
 
       // Log CDR data status
+      console.log('=== CDR DEBUG INFO ===');
       console.log('Total CDR records fetched:', allRecords.length);
+      console.log('Date filters used:', useFilters);
       if (allRecords.length > 0) {
-        console.log('Sample record:', allRecords[0]);
+        console.log('Sample record (first):', JSON.stringify(allRecords[0], null, 2));
+        console.log('Sample time field:', allRecords[0].time);
+        console.log('Sample timestamp field:', allRecords[0].timestamp);
+        console.log('Sample call_from:', allRecords[0].call_from);
+        console.log('Sample call_to:', allRecords[0].call_to);
       }
 
       // Filter records for the selected extension
@@ -243,6 +248,9 @@ export function ReportingLayout() {
       );
 
       console.log('Extension records found:', extensionRecords.length, 'for extension', extNumber);
+      if (extensionRecords.length > 0 && extensionRecords.length < 5) {
+        console.log('First extension record:', JSON.stringify(extensionRecords[0], null, 2));
+      }
 
       // Calculate statistics
       const inboundCalls = extensionRecords.filter(
@@ -332,9 +340,12 @@ export function ReportingLayout() {
       };
 
       // Populate monthly data from records
+      console.log('=== MONTHLY DATA DEBUG ===');
       console.log('Processing', extensionRecords.length, 'extension records for monthly breakdown');
+      console.log('Initialized months:', Array.from(monthlyDataMap.keys()));
       let parsedCount = 0;
       let failedCount = 0;
+      let outsideRangeCount = 0;
 
       for (const record of extensionRecords) {
         const recordDate = parseCdrDate(record);
@@ -367,12 +378,15 @@ export function ReportingLayout() {
           }
           monthData.totalMinutes += duration / 60;
         } else {
-          // Record date doesn't match any initialized month - log for debugging
-          console.warn('Record date outside range:', monthKey, 'from time:', record.time, 'timestamp:', record.timestamp);
+          // Record date doesn't match any initialized month
+          outsideRangeCount++;
+          if (outsideRangeCount <= 3) {
+            console.warn('Record date outside range:', monthKey, 'from time:', record.time, 'timestamp:', record.timestamp);
+          }
         }
       }
 
-      console.log('Monthly parsing: success:', parsedCount, 'failed:', failedCount);
+      console.log('Monthly parsing - success:', parsedCount, 'failed:', failedCount, 'outside range:', outsideRangeCount);
 
       const monthlyData = Array.from(monthlyDataMap.values()).sort(
         (a, b) => a.monthKey.localeCompare(b.monthKey)
@@ -730,8 +744,8 @@ export function ReportingLayout() {
             </div>
           </Card>
 
-          {/* Summary Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Summary Stats Cards - Row 1 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <StatCard
               icon={<PhoneIncoming className="w-6 h-6" />}
               label="Inbound Calls"
@@ -753,63 +767,28 @@ export function ReportingLayout() {
               subValue="unanswered"
               color="red"
             />
+          </div>
+
+          {/* Summary Stats Cards - Row 2 */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <StatCard
               icon={<Clock className="w-6 h-6" />}
               label="Total Talk Time"
               value={formatMinutes(reportData.summary.totalMinutes)}
-              subValue={`Avg: ${formatDuration(reportData.summary.averageCallDuration)}`}
               color="purple"
             />
-          </div>
-
-          {/* Additional Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-xl">
-                  <Phone className="w-6 h-6 text-green-600 dark:text-green-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Answered Calls</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {reportData.summary.answeredCalls}
-                  </p>
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
-                  <Activity className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Answer Rate</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {reportData.summary.totalInboundCalls + reportData.summary.totalOutboundCalls > 0
-                      ? Math.round(
-                          (reportData.summary.answeredCalls /
-                            (reportData.summary.totalInboundCalls + reportData.summary.totalOutboundCalls)) *
-                            100
-                        )
-                      : 0}
-                    %
-                  </p>
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-xl">
-                  <TrendingUp className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Avg Call Duration</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {formatDuration(reportData.summary.averageCallDuration)}
-                  </p>
-                </div>
-              </div>
-            </Card>
+            <StatCard
+              icon={<TrendingUp className="w-6 h-6" />}
+              label="Avg Call Duration"
+              value={formatDuration(reportData.summary.averageCallDuration)}
+              color="orange"
+            />
+            <StatCard
+              icon={<Phone className="w-6 h-6" />}
+              label="Answered Calls"
+              value={reportData.summary.answeredCalls}
+              color="green"
+            />
           </div>
 
           {/* Monthly Comparison Chart */}

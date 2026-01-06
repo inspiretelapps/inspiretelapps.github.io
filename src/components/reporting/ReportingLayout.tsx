@@ -79,28 +79,65 @@ export function ReportingLayout() {
 
     setLoading(true);
     try {
-      // Fetch all CDR data for the period
-      const startTime = formatDateForApi(startDate) + ' 00:00:00';
-      const endTime = formatDateForApi(endDate) + ' 23:59:59';
-
       // Fetch CDR data with pagination
       let allRecords: CallRecord[] = [];
       let page = 1;
       let hasMore = true;
-      const pageSize = 500;
+      const pageSize = 300;
+      let useFilters = true;
+      const startTime = formatDateForApi(startDate) + ' 00:00:00';
+      const endTime = formatDateForApi(endDate) + ' 23:59:59';
 
-      while (hasMore) {
-        const result = await fetchCDR(page, pageSize, {
+      // First, try to fetch with date filters
+      try {
+        const testResult = await fetchCDR(1, 10, {
           startTime,
           endTime,
         });
+        // If we got here, filters work
+        allRecords = [...testResult.data];
+        hasMore = testResult.hasMore;
+        page = 2;
+      } catch (filterError) {
+        // Date filters failed (502, 40002, etc.), fallback to unfiltered fetch
+        console.warn('CDR date filter failed, fetching all records and filtering locally');
+        useFilters = false;
+        toast('Fetching all records (API filter unavailable)', { icon: 'ℹ️' });
+      }
 
-        allRecords = [...allRecords, ...result.data];
-        hasMore = result.hasMore && result.data.length === pageSize;
-        page++;
+      // Continue fetching remaining pages
+      while (hasMore) {
+        try {
+          const result = await fetchCDR(
+            page,
+            pageSize,
+            useFilters ? { startTime, endTime } : undefined
+          );
 
-        // Safety limit
-        if (page > 100) break;
+          allRecords = [...allRecords, ...result.data];
+          hasMore = result.hasMore && result.data.length === pageSize;
+          page++;
+
+          // Safety limit - more pages when not filtering
+          if (page > (useFilters ? 100 : 50)) break;
+        } catch (pageError) {
+          console.warn('Error fetching page', page, pageError);
+          break;
+        }
+      }
+
+      // If we fetched without filters, filter by date locally
+      if (!useFilters) {
+        const startDateObj = new Date(startDate);
+        startDateObj.setHours(0, 0, 0, 0);
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+
+        allRecords = allRecords.filter((record) => {
+          // Parse date from "YYYY/MM/DD HH:MM:SS" format
+          const recordDate = new Date(record.time.replace(/\//g, '-'));
+          return recordDate >= startDateObj && recordDate <= endDateObj;
+        });
       }
 
       // Filter records for the selected extension

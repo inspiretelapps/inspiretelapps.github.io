@@ -298,4 +298,32 @@ export interface CMSData {
 }
 
 // View Type
-export type AppView = 'dashboard' | 'cms';
+export type AppView = 'dashboard' | 'cms' | 'reporting';
+
+// Reporting Types
+export interface ExtensionReportData {
+  extension: Extension;
+  period: { startDate: string; endDate: string };
+  summary: {
+    totalInboundCalls: number;
+    totalOutboundCalls: number;
+    totalMissedCalls: number;
+    inboundMinutes: number;
+    outboundMinutes: number;
+    totalMinutes: number;
+    answeredCalls: number;
+    averageCallDuration: number;
+  };
+  monthlyData: MonthlyCallData[];
+}
+
+export interface MonthlyCallData {
+  month: string; // "Jan 2025", "Feb 2025", etc.
+  monthKey: string; // "2025-01", "2025-02", etc.
+  inboundCalls: number;
+  outboundCalls: number;
+  missedCalls: number;
+  inboundMinutes: number;
+  outboundMinutes: number;
+  totalMinutes: number;
+}

@@ -19,7 +19,7 @@ import {
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loader } from '@/components/ui/Loader';
-import { fetchExtensions, fetchCDR } from '@/services/api';
+import { fetchExtensions, fetchCDR, fetchCallStats } from '@/services/api';
 import type { Extension, CallRecord, ExtensionReportData, MonthlyCallData } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
@@ -54,13 +54,24 @@ export function ReportingLayout() {
     }
   };
 
-  const formatDateForApi = (date: string): string => {
-    // Convert YYYY-MM-DD to YYYY/MM/DD HH:MM:SS format
+  // Generate multiple date formats to try - PBX date format must match its configuration
+  const getDateFormats = (date: string, isEndOfDay: boolean): string[] => {
     const d = new Date(date);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return `${year}/${month}/${day}`;
+    const time = isEndOfDay ? '23:59:59' : '00:00:00';
+    const time12hr = isEndOfDay ? '11:59:59 PM' : '12:00:00 AM';
+
+    // Return multiple formats to try - order by most common
+    return [
+      `${year}/${month}/${day} ${time}`,           // YYYY/MM/DD HH:MM:SS (24hr)
+      `${month}/${day}/${year} ${time}`,           // MM/DD/YYYY HH:MM:SS (24hr)
+      `${day}/${month}/${year} ${time}`,           // DD/MM/YYYY HH:MM:SS (24hr)
+      `${year}-${month}-${day} ${time}`,           // YYYY-MM-DD HH:MM:SS (24hr)
+      `${year}/${month}/${day} ${time12hr}`,       // YYYY/MM/DD with AM/PM
+      `${month}/${day}/${year} ${time12hr}`,       // MM/DD/YYYY with AM/PM
+    ];
   };
 
   const generateReport = async () => {
@@ -79,29 +90,85 @@ export function ReportingLayout() {
 
     setLoading(true);
     try {
-      // Fetch CDR data with pagination
+      const extNumber = selectedExtension.number;
+      const extId = selectedExtension.id;
+
+      // Get date format options to try
+      const startFormats = getDateFormats(startDate, false);
+      const endFormats = getDateFormats(endDate, true);
+
+      // Try to get call statistics using call_report API (more reliable)
+      let callStatsData = null;
+      let workingDateFormat = 0;
+
+      for (let i = 0; i < startFormats.length; i++) {
+        try {
+          const stats = await fetchCallStats([extId], startFormats[i], endFormats[i]);
+          if (stats && stats.length > 0) {
+            callStatsData = stats.find(s => s.ext_num === extNumber) || stats[0];
+            workingDateFormat = i;
+            console.log('Call stats API succeeded with format:', startFormats[i]);
+            break;
+          }
+        } catch (err) {
+          console.warn(`Date format ${i} failed for call_report:`, startFormats[i]);
+        }
+      }
+
+      // Fetch CDR data with pagination for monthly breakdown
       let allRecords: CallRecord[] = [];
       let page = 1;
       let hasMore = true;
       const pageSize = 300;
-      let useFilters = true;
-      const startTime = formatDateForApi(startDate) + ' 00:00:00';
-      const endTime = formatDateForApi(endDate) + ' 23:59:59';
+      let useFilters = false;
+      let startTime = startFormats[workingDateFormat];
+      let endTime = endFormats[workingDateFormat];
 
-      // First, try to fetch with date filters
+      // First, try to fetch with date filters using the working format
       try {
         const testResult = await fetchCDR(1, 10, {
           startTime,
           endTime,
         });
-        // If we got here, filters work
-        allRecords = [...testResult.data];
-        hasMore = testResult.hasMore;
-        page = 2;
+        // If we got here with data, filters work
+        if (testResult.data.length > 0) {
+          allRecords = [...testResult.data];
+          hasMore = testResult.hasMore;
+          page = 2;
+          useFilters = true;
+        }
       } catch (filterError) {
-        // Date filters failed (502, 40002, etc.), fallback to unfiltered fetch
-        console.warn('CDR date filter failed, fetching all records and filtering locally');
-        useFilters = false;
+        console.warn('CDR date filter failed, will try other formats or fetch all');
+      }
+
+      // If first format didn't work, try other formats
+      if (!useFilters && allRecords.length === 0) {
+        for (let i = 0; i < startFormats.length && !useFilters; i++) {
+          if (i === workingDateFormat) continue; // Already tried this one
+          try {
+            const testResult = await fetchCDR(1, 10, {
+              startTime: startFormats[i],
+              endTime: endFormats[i],
+            });
+            if (testResult.data.length > 0) {
+              allRecords = [...testResult.data];
+              hasMore = testResult.hasMore;
+              page = 2;
+              useFilters = true;
+              startTime = startFormats[i];
+              endTime = endFormats[i];
+              console.log('CDR API succeeded with format:', startFormats[i]);
+              break;
+            }
+          } catch (err) {
+            // Continue to next format
+          }
+        }
+      }
+
+      // If date filters still don't work, fallback to unfiltered fetch
+      if (!useFilters) {
+        console.warn('CDR date filter failed for all formats, fetching all records');
         toast('Fetching all records (API filter unavailable)', { icon: 'ℹ️' });
       }
 
@@ -134,14 +201,33 @@ export function ReportingLayout() {
         endDateObj.setHours(23, 59, 59, 999);
 
         allRecords = allRecords.filter((record) => {
-          // Parse date from "YYYY/MM/DD HH:MM:SS" format
-          const recordDate = new Date(record.time.replace(/\//g, '-'));
+          // Parse date - try multiple formats
+          let recordDate: Date;
+          try {
+            // Try YYYY/MM/DD format first
+            recordDate = new Date(record.time.replace(/\//g, '-'));
+          } catch {
+            // Try MM/DD/YYYY format
+            const parts = record.time.split(/[\s\/\-]/);
+            if (parts.length >= 3) {
+              const [p1, p2, p3] = parts;
+              // Determine if MM/DD/YYYY or DD/MM/YYYY based on values
+              if (parseInt(p1) > 12) {
+                recordDate = new Date(`${p3}-${p2}-${p1}`);
+              } else if (parseInt(p3) > 31) {
+                recordDate = new Date(`${p3}-${p1}-${p2}`);
+              } else {
+                recordDate = new Date(record.time);
+              }
+            } else {
+              recordDate = new Date(record.time);
+            }
+          }
           return recordDate >= startDateObj && recordDate <= endDateObj;
         });
       }
 
       // Filter records for the selected extension
-      const extNumber = selectedExtension.number;
       const extensionRecords = allRecords.filter(
         (record) =>
           record.call_from === extNumber ||
@@ -226,10 +312,32 @@ export function ReportingLayout() {
         (a, b) => a.monthKey.localeCompare(b.monthKey)
       );
 
-      const report: ExtensionReportData = {
-        extension: selectedExtension,
-        period: { startDate, endDate },
-        summary: {
+      // Use call_report API data if available (more reliable), otherwise use CDR calculations
+      let summary;
+      if (callStatsData) {
+        // Use data from call_report API
+        const answeredFromApi = callStatsData.answered_calls || 0;
+        const noAnswerFromApi = callStatsData.no_answer_calls || 0;
+        const busyFromApi = callStatsData.busy_calls || 0;
+        const failedFromApi = callStatsData.failed_calls || 0;
+        const totalTalkTime = callStatsData.total_talking_time || 0;
+
+        summary = {
+          totalInboundCalls: inboundCalls.length || answeredFromApi,
+          totalOutboundCalls: outboundCalls.length,
+          totalMissedCalls: noAnswerFromApi + busyFromApi + failedFromApi,
+          inboundMinutes: Math.round(inboundSeconds / 60 * 10) / 10,
+          outboundMinutes: Math.round(outboundSeconds / 60 * 10) / 10,
+          totalMinutes: Math.round(totalTalkTime / 60 * 10) / 10 || Math.round(totalSeconds / 60 * 10) / 10,
+          answeredCalls: answeredFromApi || answeredCalls.length,
+          averageCallDuration: answeredFromApi > 0
+            ? Math.round(totalTalkTime / answeredFromApi)
+            : (answeredCalls.length > 0 ? Math.round(totalSeconds / answeredCalls.length) : 0),
+        };
+        console.log('Using call_report API data for summary');
+      } else {
+        // Use CDR-calculated data
+        summary = {
           totalInboundCalls: inboundCalls.length,
           totalOutboundCalls: outboundCalls.length,
           totalMissedCalls: missedCalls.length,
@@ -240,7 +348,14 @@ export function ReportingLayout() {
           averageCallDuration: answeredCalls.length > 0
             ? Math.round(totalSeconds / answeredCalls.length)
             : 0,
-        },
+        };
+        console.log('Using CDR-calculated data for summary');
+      }
+
+      const report: ExtensionReportData = {
+        extension: selectedExtension,
+        period: { startDate, endDate },
+        summary,
         monthlyData,
       };
 

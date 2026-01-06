@@ -113,7 +113,7 @@ export function ContactForm({ contact, onClose }: ContactFormProps) {
           }
         } else {
           // Create new Yeastar contact for manual contacts being synced
-          const result = await createCompanyContact(yeastarData as any);
+          const result = await createCompanyContact(yeastarData);
           if (result.success && result.id) {
             updatedContact.yeastarContactId = result.id;
             updatedContact.source = 'yeastar';
@@ -140,7 +140,7 @@ export function ContactForm({ contact, onClose }: ContactFormProps) {
 
         // Try to sync to Yeastar
         const yeastarData = contactToYeastarFormat(newContact);
-        const result = await createCompanyContact(yeastarData as any);
+        const result = await createCompanyContact(yeastarData);
 
         if (result.success && result.id) {
           newContact.yeastarContactId = result.id;

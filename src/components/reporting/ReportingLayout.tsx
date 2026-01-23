@@ -19,7 +19,6 @@ import { fetchExtensions, fetchCallStats, fetchCallStatsByType } from '@/service
 import type { Extension, ExtensionReportData, MonthlyCallData } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 export function ReportingLayout() {
   const [extensions, setExtensions] = useState<Extension[]>([]);
@@ -280,25 +279,10 @@ export function ReportingLayout() {
   };
 
   const exportToPdf = async () => {
-    if (!reportRef.current || !reportData) return;
+    if (!reportData) return;
 
     setExportingPdf(true);
     try {
-      // Hide elements that shouldn't appear in PDF
-      const hideElements = reportRef.current.querySelectorAll('.pdf-hide');
-      hideElements.forEach(el => (el as HTMLElement).style.display = 'none');
-
-      const canvas = await html2canvas(reportRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-      });
-
-      // Restore hidden elements
-      hideElements.forEach(el => (el as HTMLElement).style.display = '');
-
-      const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -306,27 +290,198 @@ export function ReportingLayout() {
       });
 
       const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth - 20;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const margin = 15;
+      const contentWidth = pageWidth - margin * 2;
+      let yPos = margin;
 
-      let heightLeft = imgHeight;
-      let position = 10;
+      // Colors
+      const primaryColor: [number, number, number] = [59, 130, 246]; // Blue
+      const greenColor: [number, number, number] = [34, 197, 94];
+      const redColor: [number, number, number] = [239, 68, 68];
+      const grayColor: [number, number, number] = [107, 114, 128];
+      const darkColor: [number, number, number] = [31, 41, 55];
 
-      // Add first page
-      pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight - 20;
+      // Helper function for text
+      const addText = (text: string, x: number, y: number, options?: {
+        fontSize?: number;
+        fontStyle?: 'normal' | 'bold' | 'italic';
+        color?: [number, number, number];
+        align?: 'left' | 'center' | 'right';
+      }) => {
+        const { fontSize = 10, fontStyle = 'normal', color = darkColor, align = 'left' } = options || {};
+        pdf.setFontSize(fontSize);
+        pdf.setFont('helvetica', fontStyle);
+        pdf.setTextColor(...color);
+        pdf.text(text, x, y, { align });
+      };
 
-      // Add more pages if needed
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight + 10;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 10, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight - 20;
+      // Header
+      addText('Extension Detail Report', pageWidth / 2, yPos, {
+        fontSize: 18,
+        fontStyle: 'bold',
+        color: primaryColor,
+        align: 'center',
+      });
+      yPos += 10;
+
+      // Extension Info
+      const extName = reportData.extension.display_name || reportData.extension.username || 'Unknown';
+      addText(`Extension: ${reportData.extension.number} - ${extName}`, pageWidth / 2, yPos, {
+        fontSize: 12,
+        align: 'center',
+      });
+      yPos += 6;
+
+      const periodText = `Period: ${new Date(reportData.period.startDate).toLocaleDateString()} - ${new Date(reportData.period.endDate).toLocaleDateString()}`;
+      addText(periodText, pageWidth / 2, yPos, {
+        fontSize: 10,
+        color: grayColor,
+        align: 'center',
+      });
+      yPos += 15;
+
+      // Summary Section
+      addText('Summary', margin, yPos, { fontSize: 14, fontStyle: 'bold' });
+      yPos += 8;
+
+      // Summary boxes
+      const boxWidth = (contentWidth - 10) / 3;
+      const boxHeight = 25;
+
+      // Inbound box
+      pdf.setFillColor(240, 253, 244); // Light green
+      pdf.roundedRect(margin, yPos, boxWidth, boxHeight, 2, 2, 'F');
+      addText('Inbound', margin + boxWidth / 2, yPos + 6, { fontSize: 9, color: grayColor, align: 'center' });
+      addText(reportData.summary.inboundTotal.toString(), margin + boxWidth / 2, yPos + 14, { fontSize: 16, fontStyle: 'bold', color: greenColor, align: 'center' });
+      addText(`${reportData.summary.inboundAnswered} answered / ${reportData.summary.inboundNoAnswer} missed`, margin + boxWidth / 2, yPos + 21, { fontSize: 7, color: grayColor, align: 'center' });
+
+      // Outbound box
+      pdf.setFillColor(239, 246, 255); // Light blue
+      pdf.roundedRect(margin + boxWidth + 5, yPos, boxWidth, boxHeight, 2, 2, 'F');
+      addText('Outbound', margin + boxWidth + 5 + boxWidth / 2, yPos + 6, { fontSize: 9, color: grayColor, align: 'center' });
+      addText(reportData.summary.outboundTotal.toString(), margin + boxWidth + 5 + boxWidth / 2, yPos + 14, { fontSize: 16, fontStyle: 'bold', color: primaryColor, align: 'center' });
+      addText(`${reportData.summary.outboundAnswered} answered / ${reportData.summary.outboundNoAnswer} missed`, margin + boxWidth + 5 + boxWidth / 2, yPos + 21, { fontSize: 7, color: grayColor, align: 'center' });
+
+      // Duration box
+      pdf.setFillColor(250, 245, 255); // Light purple
+      pdf.roundedRect(margin + (boxWidth + 5) * 2, yPos, boxWidth, boxHeight, 2, 2, 'F');
+      addText('Talk Duration', margin + (boxWidth + 5) * 2 + boxWidth / 2, yPos + 6, { fontSize: 9, color: grayColor, align: 'center' });
+      addText(formatDurationHMS(reportData.summary.totalTalkDuration), margin + (boxWidth + 5) * 2 + boxWidth / 2, yPos + 14, { fontSize: 14, fontStyle: 'bold', color: [147, 51, 234], align: 'center' });
+      addText(`Avg: ${formatDuration(reportData.summary.averageCallDuration)}`, margin + (boxWidth + 5) * 2 + boxWidth / 2, yPos + 21, { fontSize: 7, color: grayColor, align: 'center' });
+
+      yPos += boxHeight + 15;
+
+      // Monthly Breakdown Table
+      if (reportData.monthlyData.length > 0) {
+        addText('Monthly Breakdown', margin, yPos, { fontSize: 14, fontStyle: 'bold' });
+        yPos += 8;
+
+        // Table header
+        const colWidths = [30, 20, 20, 20, 20, 20, 20, 30];
+        const headers = ['Month', 'In Ans', 'In Miss', 'In Total', 'Out Ans', 'Out Miss', 'Out Total', 'Duration'];
+
+        // Header background
+        pdf.setFillColor(243, 244, 246);
+        pdf.rect(margin, yPos - 4, contentWidth, 8, 'F');
+
+        let xPos = margin;
+        headers.forEach((header, i) => {
+          addText(header, xPos + colWidths[i] / 2, yPos, {
+            fontSize: 8,
+            fontStyle: 'bold',
+            color: grayColor,
+            align: 'center',
+          });
+          xPos += colWidths[i];
+        });
+        yPos += 6;
+
+        // Table rows
+        reportData.monthlyData.forEach((month, index) => {
+          // Check if we need a new page
+          if (yPos > 270) {
+            pdf.addPage();
+            yPos = margin;
+          }
+
+          // Alternate row background
+          if (index % 2 === 0) {
+            pdf.setFillColor(249, 250, 251);
+            pdf.rect(margin, yPos - 3, contentWidth, 6, 'F');
+          }
+
+          xPos = margin;
+          const rowData = [
+            month.month,
+            month.inboundAnswered.toString(),
+            month.inboundNoAnswer.toString(),
+            month.inboundTotal.toString(),
+            month.outboundAnswered.toString(),
+            month.outboundNoAnswer.toString(),
+            month.outboundTotal.toString(),
+            formatDurationHMS(month.totalTalkDuration),
+          ];
+
+          rowData.forEach((cell, i) => {
+            let color = darkColor;
+            if (i === 1 || i === 4) color = greenColor; // Answered
+            if (i === 2 || i === 5) color = redColor; // Missed
+            addText(cell, xPos + colWidths[i] / 2, yPos, {
+              fontSize: 8,
+              color,
+              align: 'center',
+            });
+            xPos += colWidths[i];
+          });
+          yPos += 6;
+        });
+
+        // Totals row
+        yPos += 2;
+        pdf.setFillColor(229, 231, 235);
+        pdf.rect(margin, yPos - 3, contentWidth, 7, 'F');
+
+        xPos = margin;
+        const totals = [
+          'Total',
+          reportData.summary.inboundAnswered.toString(),
+          reportData.summary.inboundNoAnswer.toString(),
+          reportData.summary.inboundTotal.toString(),
+          reportData.summary.outboundAnswered.toString(),
+          reportData.summary.outboundNoAnswer.toString(),
+          reportData.summary.outboundTotal.toString(),
+          formatDurationHMS(reportData.summary.totalTalkDuration),
+        ];
+
+        totals.forEach((cell, i) => {
+          let color = darkColor;
+          if (i === 1 || i === 4) color = greenColor;
+          if (i === 2 || i === 5) color = redColor;
+          addText(cell, xPos + colWidths[i] / 2, yPos, {
+            fontSize: 8,
+            fontStyle: 'bold',
+            color,
+            align: 'center',
+          });
+          xPos += colWidths[i];
+        });
       }
 
-      const extName = reportData.extension.display_name || reportData.extension.number;
-      const fileName = `Extension_Report_${extName}_${reportData.period.startDate}_to_${reportData.period.endDate}.pdf`;
+      // Footer
+      yPos = pdf.internal.pageSize.getHeight() - 15;
+      addText(`Generated on ${new Date().toLocaleString()}`, pageWidth / 2, yPos, {
+        fontSize: 8,
+        color: grayColor,
+        align: 'center',
+      });
+      addText('Yeastar PBX Dashboard - Extension Detail Report', pageWidth / 2, yPos + 4, {
+        fontSize: 8,
+        color: grayColor,
+        align: 'center',
+      });
+
+      const extNameFile = reportData.extension.display_name || reportData.extension.number;
+      const fileName = `Extension_Report_${extNameFile}_${reportData.period.startDate}_to_${reportData.period.endDate}.pdf`;
       pdf.save(fileName);
       toast.success('PDF exported successfully!');
     } catch (error: any) {

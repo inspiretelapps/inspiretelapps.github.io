@@ -547,6 +547,80 @@ export async function fetchCDR(
 }
 
 /**
+ * Fetch all CDR records for an extension within a date range
+ * Used for detailed call reports
+ */
+export async function fetchExtensionCDR(
+  extNum: string,
+  startTime: string,
+  endTime: string,
+  pageSize: number = 10000
+): Promise<CallRecord[]> {
+  const allRecords: CallRecord[] = [];
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const params = new URLSearchParams();
+    params.append('page', String(page));
+    params.append('page_size', String(pageSize));
+    params.append('start_time', startTime);
+    params.append('end_time', endTime);
+    params.append('sort_by', 'time');
+    params.append('order_by', 'desc');
+
+    // Try searching CDR - we'll filter by extension in JS since API filtering can be inconsistent
+    const endpoint = `cdr/search?${params.toString()}`;
+
+    try {
+      const result = await apiRequest<CallRecord[]>(endpoint);
+
+      if (result && result.errcode === 0 && result.data) {
+        // Filter records where the extension is either the caller or callee
+        const filtered = result.data.filter((record) => {
+          const from = String(record.call_from || '').trim();
+          const to = String(record.call_to || '').trim();
+          return from === extNum || to === extNum;
+        });
+
+        allRecords.push(...filtered);
+
+        const totalNumber = (result as any).total_number;
+        hasMore =
+          typeof totalNumber === 'number'
+            ? page * pageSize < totalNumber
+            : result.data.length >= pageSize;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    } catch (error: any) {
+      console.error('Error fetching extension CDR:', error);
+      // If search fails, try basic list endpoint
+      if (page === 1) {
+        try {
+          const basicEndpoint = `cdr/list?page_size=${pageSize}&sort_by=time&order_by=desc`;
+          const basicResult = await apiRequest<CallRecord[]>(basicEndpoint);
+          if (basicResult && basicResult.errcode === 0 && basicResult.data) {
+            const filtered = basicResult.data.filter((record) => {
+              const from = String(record.call_from || '').trim();
+              const to = String(record.call_to || '').trim();
+              return from === extNum || to === extNum;
+            });
+            allRecords.push(...filtered);
+          }
+        } catch (fallbackError) {
+          console.error('Fallback CDR fetch also failed:', fallbackError);
+        }
+      }
+      hasMore = false;
+    }
+  }
+
+  return allRecords;
+}
+
+/**
  * Fetch inbound routes
  */
 export async function fetchInboundRoutes(): Promise<InboundRoute[]> {

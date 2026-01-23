@@ -11,6 +11,8 @@ import {
   RefreshCw,
   ChevronDown,
   User,
+  List,
+  PieChart,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -19,8 +21,12 @@ import { fetchExtensions, fetchCallStats, fetchCallStatsByType } from '@/service
 import type { Extension, ExtensionReportData, MonthlyCallData } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
+import { ExtensionDetailReport } from './ExtensionDetailReport';
+
+type ReportType = 'summary' | 'detail';
 
 export function ReportingLayout() {
+  const [reportType, setReportType] = useState<ReportType>('summary');
   const [extensions, setExtensions] = useState<Extension[]>([]);
   const [selectedExtension, setSelectedExtension] = useState<Extension | null>(null);
   const [startDate, setStartDate] = useState<string>('');
@@ -613,6 +619,53 @@ export function ReportingLayout() {
 
   return (
     <div className="space-y-6">
+      {/* Report Type Selector */}
+      <Card>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
+            <BarChart3 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
+              Reports
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Generate call statistics and detailed reports
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => setReportType('summary')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
+              reportType === 'summary'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+            }`}
+          >
+            <PieChart className="w-4 h-4" />
+            Summary Report
+          </button>
+          <button
+            onClick={() => setReportType('detail')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors ${
+              reportType === 'detail'
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+            }`}
+          >
+            <List className="w-4 h-4" />
+            Detail Report
+          </button>
+        </div>
+      </Card>
+
+      {/* Conditional Report Content */}
+      {reportType === 'detail' ? (
+        <ExtensionDetailReport />
+      ) : (
+      <>
       {/* Report Configuration Card */}
       <Card>
         <div className="flex items-center gap-3 mb-6">
@@ -621,10 +674,10 @@ export function ReportingLayout() {
           </div>
           <div>
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-              Extension Detail Report
+              Extension Summary Report
             </h2>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Generate detailed call statistics for any extension
+              Generate monthly call statistics for any extension
             </p>
           </div>
         </div>
@@ -1039,6 +1092,8 @@ export function ReportingLayout() {
             </p>
           </div>
         </Card>
+      )}
+      </>
       )}
     </div>
   );

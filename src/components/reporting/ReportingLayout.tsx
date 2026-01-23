@@ -465,6 +465,108 @@ export function ReportingLayout() {
           });
           xPos += colWidths[i];
         });
+
+        // Monthly Activity Comparison Chart
+        yPos += 15;
+
+        // Check if we need a new page for the chart
+        if (yPos > 200) {
+          pdf.addPage();
+          yPos = margin;
+        }
+
+        addText('Monthly Activity Comparison', margin, yPos, { fontSize: 14, fontStyle: 'bold' });
+        yPos += 8;
+
+        // Chart dimensions
+        const chartHeight = 60;
+        const chartLeft = margin + 15; // Space for Y-axis labels
+        const chartRight = pageWidth - margin - 10;
+        const chartBarWidth = chartRight - chartLeft;
+        const chartBottom = yPos + chartHeight;
+
+        // Find max value for scaling
+        const maxCalls = Math.max(
+          ...reportData.monthlyData.map((d) => Math.max(d.inboundTotal, d.outboundTotal)),
+          1 // Ensure at least 1 to avoid division by zero
+        );
+
+        // Draw Y-axis grid lines and labels
+        pdf.setDrawColor(229, 231, 235);
+        pdf.setLineWidth(0.1);
+        const yAxisTicks = [0, 0.25, 0.5, 0.75, 1];
+        yAxisTicks.forEach((tick) => {
+          const lineY = chartBottom - (chartHeight * tick);
+          pdf.line(chartLeft, lineY, chartRight, lineY);
+          const value = Math.round(maxCalls * tick);
+          addText(value.toString(), chartLeft - 3, lineY + 1, {
+            fontSize: 7,
+            color: grayColor,
+            align: 'right',
+          });
+        });
+
+        // Calculate bar dimensions
+        const numMonths = reportData.monthlyData.length;
+        const groupWidth = chartBarWidth / numMonths;
+        const barWidth = Math.min(groupWidth * 0.35, 12);
+        const barGap = 2;
+
+        // Draw bars
+        reportData.monthlyData.forEach((month, index) => {
+          const groupX = chartLeft + index * groupWidth + groupWidth / 2;
+
+          // Inbound bar (green)
+          const inboundHeight = (month.inboundTotal / maxCalls) * chartHeight;
+          if (inboundHeight > 0) {
+            pdf.setFillColor(34, 197, 94);
+            pdf.roundedRect(
+              groupX - barWidth - barGap / 2,
+              chartBottom - inboundHeight,
+              barWidth,
+              inboundHeight,
+              1,
+              1,
+              'F'
+            );
+          }
+
+          // Outbound bar (blue)
+          const outboundHeight = (month.outboundTotal / maxCalls) * chartHeight;
+          if (outboundHeight > 0) {
+            pdf.setFillColor(59, 130, 246);
+            pdf.roundedRect(
+              groupX + barGap / 2,
+              chartBottom - outboundHeight,
+              barWidth,
+              outboundHeight,
+              1,
+              1,
+              'F'
+            );
+          }
+
+          // Month label
+          addText(month.month, groupX, chartBottom + 5, {
+            fontSize: 6,
+            color: grayColor,
+            align: 'center',
+          });
+        });
+
+        // Draw legend
+        const legendY = chartBottom + 10;
+        const legendX = chartLeft + chartBarWidth / 2 - 25;
+
+        pdf.setFillColor(34, 197, 94);
+        pdf.roundedRect(legendX, legendY - 2, 8, 4, 1, 1, 'F');
+        addText('Inbound', legendX + 10, legendY + 1, { fontSize: 7, color: grayColor });
+
+        pdf.setFillColor(59, 130, 246);
+        pdf.roundedRect(legendX + 40, legendY - 2, 8, 4, 1, 1, 'F');
+        addText('Outbound', legendX + 50, legendY + 1, { fontSize: 7, color: grayColor });
+
+        yPos = legendY + 10;
       }
 
       // Footer

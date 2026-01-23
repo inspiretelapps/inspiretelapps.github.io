@@ -559,6 +559,22 @@ export async function fetchExtensionCDR(
   const allRecords: CallRecord[] = [];
   let page = 1;
   let hasMore = true;
+  const trimmedExt = String(extNum || '').trim();
+  const normalizeDigits = (value: string) => value.replace(/[^\d]/g, '');
+  const matchesExtension = (value: string) => {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    if (raw === trimmedExt) return true;
+    const normalized = normalizeDigits(raw);
+    if (normalized === trimmedExt) return true;
+    if (normalizeDigits(trimmedExt) === normalized) return true;
+    const normalizedExtNoZeros = normalizeDigits(trimmedExt).replace(/^0+/, '');
+    if (normalized && normalized.replace(/^0+/, '') === normalizedExtNoZeros) return true;
+    if (raw.startsWith(trimmedExt) && raw.length > trimmedExt.length && /\D/.test(raw[trimmedExt.length])) {
+      return true;
+    }
+    return false;
+  };
 
   while (hasMore) {
     const params = new URLSearchParams();
@@ -578,9 +594,7 @@ export async function fetchExtensionCDR(
       if (result && result.errcode === 0 && result.data) {
         // Filter records where the extension is either the caller or callee
         const filtered = result.data.filter((record) => {
-          const from = String(record.call_from || '').trim();
-          const to = String(record.call_to || '').trim();
-          return from === extNum || to === extNum;
+          return matchesExtension(record.call_from) || matchesExtension(record.call_to);
         });
 
         allRecords.push(...filtered);
@@ -603,9 +617,7 @@ export async function fetchExtensionCDR(
           const basicResult = await apiRequest<CallRecord[]>(basicEndpoint);
           if (basicResult && basicResult.errcode === 0 && basicResult.data) {
             const filtered = basicResult.data.filter((record) => {
-              const from = String(record.call_from || '').trim();
-              const to = String(record.call_to || '').trim();
-              return from === extNum || to === extNum;
+              return matchesExtension(record.call_from) || matchesExtension(record.call_to);
             });
             allRecords.push(...filtered);
           }

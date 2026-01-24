@@ -6,6 +6,15 @@ export interface YeastarConfig {
   // Note: clientSecret should NOT be stored on client side in production
 }
 
+// Saved Line (for login dropdown)
+export interface SavedLine {
+  id: string;
+  name: string;
+  proxyUrl: string;
+  pbxHost: string;
+  clientId: string;
+}
+
 // Extension Types
 export type ExtensionOnlineStatus = Record<string, { status?: number; ip?: string }>;
 

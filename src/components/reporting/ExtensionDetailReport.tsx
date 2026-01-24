@@ -17,8 +17,8 @@ import {
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Loader } from '@/components/ui/Loader';
-import { fetchExtensions, fetchExtensionCDR } from '@/services/api';
-import type { Extension, CallRecord } from '@/types';
+import { fetchExtensions, fetchExtensionCDR, fetchCallStats, fetchCallStatsByType } from '@/services/api';
+import type { Extension, CallRecord, MonthlyCallData } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 
@@ -33,6 +33,7 @@ export function ExtensionDetailReport() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showExtensionDropdown, setShowExtensionDropdown] = useState(false);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [monthlyData, setMonthlyData] = useState<MonthlyCallData[]>([]);
 
   useEffect(() => {
     loadExtensions();
@@ -83,7 +84,7 @@ export function ExtensionDetailReport() {
       return { icon: PhoneIncoming, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' };
     }
     if (d.includes('no answer') || d.includes('noanswer') || d.includes('missed')) {
-      return { icon: PhoneMissed, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-900/30' };
+      return { icon: PhoneMissed, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-900/30' };
     }
     if (d.includes('busy')) {
       return { icon: Phone, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-900/30' };
@@ -105,6 +106,163 @@ export function ExtensionDetailReport() {
     }
   };
 
+  const getDateFormats = (date: string, isEndOfDay: boolean): string[] => {
+    const d = new Date(date);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const time = isEndOfDay ? '23:59:59' : '00:00:00';
+    const time12hr = isEndOfDay ? '11:59:59 PM' : '12:00:00 AM';
+
+    return [
+      `${year}/${month}/${day} ${time}`,
+      `${month}/${day}/${year} ${time}`,
+      `${day}/${month}/${year} ${time}`,
+      `${year}-${month}-${day} ${time}`,
+      `${year}/${month}/${day} ${time12hr}`,
+      `${month}/${day}/${year} ${time12hr}`,
+    ];
+  };
+
+  const getMonthDateRange = (year: number, month: number, formatIndex: number) => {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+
+    const formatDate = (d: Date, isEndOfDay: boolean): string => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const time = isEndOfDay ? '23:59:59' : '00:00:00';
+
+      switch (formatIndex) {
+        case 0:
+          return `${y}/${m}/${day} ${time}`;
+        case 1:
+          return `${m}/${day}/${y} ${time}`;
+        case 2:
+          return `${day}/${m}/${y} ${time}`;
+        case 3:
+          return `${y}-${m}-${day} ${time}`;
+        case 4:
+          return `${y}/${m}/${day} ${isEndOfDay ? '11:59:59 PM' : '12:00:00 AM'}`;
+        case 5:
+          return `${m}/${day}/${y} ${isEndOfDay ? '11:59:59 PM' : '12:00:00 AM'}`;
+        default:
+          return `${y}/${m}/${day} ${time}`;
+      }
+    };
+
+    return {
+      start: formatDate(firstDay, false),
+      end: formatDate(lastDay, true),
+    };
+  };
+
+  const getPriorMonths = (referenceDate: string, count: number) => {
+    const ref = new Date(referenceDate);
+    const startOfMonth = new Date(ref.getFullYear(), ref.getMonth(), 1);
+    const months: Array<{ year: number; month: number; key: string; label: string }> = [];
+
+    for (let i = count; i >= 1; i -= 1) {
+      const date = new Date(startOfMonth);
+      date.setMonth(startOfMonth.getMonth() - i);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const monthLabel = date.toLocaleString('default', { month: 'short', year: 'numeric' });
+      months.push({
+        year: date.getFullYear(),
+        month: date.getMonth(),
+        key: monthKey,
+        label: monthLabel,
+      });
+    }
+
+    return months;
+  };
+
+  const loadMonthlyData = async (extension: Extension, referenceDate: string) => {
+    const extId = extension.id;
+    const extNumber = extension.number;
+    const startFormats = getDateFormats(referenceDate, false);
+    const endFormats = getDateFormats(referenceDate, true);
+    let workingFormatIndex = 0;
+    let formatFound = false;
+
+    for (let i = 0; i < startFormats.length && !formatFound; i++) {
+      try {
+        const testStats = await fetchCallStats([extId], startFormats[i], endFormats[i]);
+        if (testStats) {
+          workingFormatIndex = i;
+          formatFound = true;
+        }
+      } catch (err) {
+        console.warn(`Date format ${i} failed:`, startFormats[i]);
+      }
+    }
+
+    if (!formatFound) {
+      toast.error('Unable to determine PBX date format for monthly stats.');
+      return [];
+    }
+
+    const months = getPriorMonths(referenceDate, 3);
+    const monthlyDataMap = new Map<string, MonthlyCallData>();
+
+    for (const monthInfo of months) {
+      const { start: monthStart, end: monthEnd } = getMonthDateRange(
+        monthInfo.year,
+        monthInfo.month,
+        workingFormatIndex
+      );
+
+      let inboundStats = null;
+      let outboundStats = null;
+
+      try {
+        const [inboundResult, outboundResult] = await Promise.all([
+          fetchCallStatsByType([extId], monthStart, monthEnd, 'Inbound'),
+          fetchCallStatsByType([extId], monthStart, monthEnd, 'Outbound'),
+        ]);
+
+        inboundStats = inboundResult.find((s) => s.ext_num === extNumber) || inboundResult[0] || null;
+        outboundStats = outboundResult.find((s) => s.ext_num === extNumber) || outboundResult[0] || null;
+      } catch (err) {
+        console.warn(`Failed to fetch stats for ${monthInfo.label}:`, err);
+      }
+
+      const inboundAnswered = inboundStats?.answered_calls || 0;
+      const inboundNoAnswer =
+        (inboundStats?.no_answer_calls || 0) +
+        (inboundStats?.busy_calls || 0) +
+        (inboundStats?.failed_calls || 0);
+      const inboundTotal = inboundAnswered + inboundNoAnswer;
+
+      const outboundAnswered = outboundStats?.answered_calls || 0;
+      const outboundNoAnswer =
+        (outboundStats?.no_answer_calls || 0) +
+        (outboundStats?.busy_calls || 0) +
+        (outboundStats?.failed_calls || 0);
+      const outboundTotal = outboundAnswered + outboundNoAnswer;
+
+      const monthTalkDuration =
+        (inboundStats?.total_talking_time || 0) +
+        (outboundStats?.total_talking_time || 0);
+
+      monthlyDataMap.set(monthInfo.key, {
+        month: monthInfo.label,
+        monthKey: monthInfo.key,
+        inboundAnswered,
+        inboundNoAnswer,
+        inboundTotal,
+        outboundAnswered,
+        outboundNoAnswer,
+        outboundTotal,
+        totalTalkDuration: monthTalkDuration,
+      });
+    }
+
+    return Array.from(monthlyDataMap.values()).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+  };
+
   const generateReport = async () => {
     if (!selectedExtension) {
       toast.error('Please select an extension');
@@ -121,6 +279,7 @@ export function ExtensionDetailReport() {
 
     setLoading(true);
     setHasGenerated(false);
+    setMonthlyData([]);
 
     try {
       // Format dates for the API
@@ -134,6 +293,8 @@ export function ExtensionDetailReport() {
       );
 
       setCallRecords(records);
+      const monthlyStats = await loadMonthlyData(selectedExtension, startDate);
+      setMonthlyData(monthlyStats);
       setHasGenerated(true);
 
       if (records.length === 0) {
@@ -315,7 +476,7 @@ export function ExtensionDetailReport() {
         const d = record.disposition?.toLowerCase() || '';
         let statusColor = grayColor;
         if (d.includes('answer')) statusColor = greenColor;
-        else if (d.includes('no answer') || d.includes('noanswer') || d.includes('missed')) statusColor = redColor;
+        else if (d.includes('no answer') || d.includes('noanswer') || d.includes('missed')) statusColor = orangeColor;
         else if (d.includes('busy')) statusColor = orangeColor;
         addText(record.disposition || '-', xPos + 2, yPos, { fontSize: 7, color: statusColor });
         xPos += colWidths[4];
@@ -538,6 +699,113 @@ export function ExtensionDetailReport() {
               </div>
             )}
 
+            {/* Monthly Activity (Prior 3 Months) */}
+            {monthlyData.length > 0 && (
+              <div className="space-y-6 mb-6">
+                <Card>
+                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+                    Monthly Activity Comparison (Prior 3 Months)
+                  </h4>
+                  <MonthlyChart data={monthlyData} />
+                </Card>
+                <Card>
+                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                    Monthly Breakdown (Prior 3 Months)
+                  </h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b-2 border-gray-300 dark:border-gray-600">
+                          <th rowSpan={2} className="text-left py-2 px-3 text-sm font-semibold text-gray-700 dark:text-gray-300 align-bottom">
+                            Month
+                          </th>
+                          <th colSpan={3} className="text-center py-2 px-3 text-sm font-semibold text-green-700 dark:text-green-400 border-b border-gray-200 dark:border-gray-700">
+                            Inbound
+                          </th>
+                          <th colSpan={3} className="text-center py-2 px-3 text-sm font-semibold text-blue-700 dark:text-blue-400 border-b border-gray-200 dark:border-gray-700">
+                            Outbound
+                          </th>
+                          <th rowSpan={2} className="text-center py-2 px-3 text-sm font-semibold text-gray-700 dark:text-gray-300 align-bottom">
+                            Total Talk<br />Duration
+                          </th>
+                        </tr>
+                        <tr className="border-b border-gray-200 dark:border-gray-700">
+                          <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">Answered</th>
+                          <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">No Answer</th>
+                          <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">Total</th>
+                          <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">Answered</th>
+                          <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">No Answer</th>
+                          <th className="text-center py-2 px-2 text-xs font-medium text-gray-500 dark:text-gray-400">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlyData.map((month, index) => (
+                          <motion.tr
+                            key={month.monthKey}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                          >
+                            <td className="py-3 px-3 font-medium text-gray-900 dark:text-white">
+                              {month.month}
+                            </td>
+                            <td className="py-3 px-2 text-center text-green-600 dark:text-green-400">
+                              {month.inboundAnswered}
+                            </td>
+                            <td className="py-3 px-2 text-center text-orange-500 dark:text-orange-400">
+                              {month.inboundNoAnswer}
+                            </td>
+                            <td className="py-3 px-2 text-center font-medium text-gray-700 dark:text-gray-300">
+                              {month.inboundTotal}
+                            </td>
+                            <td className="py-3 px-2 text-center text-green-600 dark:text-green-400">
+                              {month.outboundAnswered}
+                            </td>
+                            <td className="py-3 px-2 text-center text-orange-500 dark:text-orange-400">
+                              {month.outboundNoAnswer}
+                            </td>
+                            <td className="py-3 px-2 text-center font-medium text-gray-700 dark:text-gray-300">
+                              {month.outboundTotal}
+                            </td>
+                            <td className="py-3 px-3 text-center font-medium text-gray-900 dark:text-white">
+                              {formatDurationHMS(month.totalTalkDuration)}
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-gray-50 dark:bg-gray-800/50 font-semibold border-t-2 border-gray-300 dark:border-gray-600">
+                          <td className="py-3 px-3 text-gray-900 dark:text-white">Total</td>
+                          <td className="py-3 px-2 text-center text-green-600 dark:text-green-400">
+                            {monthlyData.reduce((sum, m) => sum + m.inboundAnswered, 0)}
+                          </td>
+                          <td className="py-3 px-2 text-center text-orange-500 dark:text-orange-400">
+                            {monthlyData.reduce((sum, m) => sum + m.inboundNoAnswer, 0)}
+                          </td>
+                          <td className="py-3 px-2 text-center text-gray-700 dark:text-gray-300">
+                            {monthlyData.reduce((sum, m) => sum + m.inboundTotal, 0)}
+                          </td>
+                          <td className="py-3 px-2 text-center text-green-600 dark:text-green-400">
+                            {monthlyData.reduce((sum, m) => sum + m.outboundAnswered, 0)}
+                          </td>
+                          <td className="py-3 px-2 text-center text-orange-500 dark:text-orange-400">
+                            {monthlyData.reduce((sum, m) => sum + m.outboundNoAnswer, 0)}
+                          </td>
+                          <td className="py-3 px-2 text-center text-gray-700 dark:text-gray-300">
+                            {monthlyData.reduce((sum, m) => sum + m.outboundTotal, 0)}
+                          </td>
+                          <td className="py-3 px-3 text-center text-gray-900 dark:text-white">
+                            {formatDurationHMS(monthlyData.reduce((sum, m) => sum + m.totalTalkDuration, 0))}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </Card>
+              </div>
+            )}
+
             {/* Call Records Table */}
             {callRecords.length > 0 ? (
               <div className="overflow-x-auto">
@@ -650,6 +918,133 @@ export function ExtensionDetailReport() {
           </Card>
         </motion.div>
       )}
+    </div>
+  );
+}
+
+interface MonthlyChartProps {
+  data: MonthlyCallData[];
+}
+
+function MonthlyChart({ data }: MonthlyChartProps) {
+  if (data.length === 0) return null;
+
+  const maxCalls = Math.max(
+    ...data.map((d) => Math.max(d.inboundTotal, d.outboundTotal))
+  );
+  const chartHeight = 200;
+  const chartWidth = 800;
+  const padding = { top: 20, right: 20, bottom: 60, left: 50 };
+  const barWidth = Math.min(
+    (chartWidth - padding.left - padding.right) / data.length / 3,
+    35
+  );
+  const groupWidth = barWidth * 2 + 15;
+
+  const scale = maxCalls > 0 ? (chartHeight - padding.top - padding.bottom) / maxCalls : 0;
+
+  return (
+    <div className="overflow-x-auto">
+      <svg
+        viewBox={`0 0 ${chartWidth} ${chartHeight + 20}`}
+        className="w-full min-w-[600px]"
+        style={{ maxHeight: '300px' }}
+      >
+        {/* Y-axis grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+          const y = padding.top + (chartHeight - padding.top - padding.bottom) * (1 - tick);
+          const value = Math.round(maxCalls * tick);
+          return (
+            <g key={tick}>
+              <line
+                x1={padding.left}
+                y1={y}
+                x2={chartWidth - padding.right}
+                y2={y}
+                stroke="currentColor"
+                strokeOpacity={0.1}
+                className="text-gray-400"
+              />
+              <text
+                x={padding.left - 10}
+                y={y + 4}
+                textAnchor="end"
+                className="fill-current text-gray-500 dark:text-gray-400"
+                fontSize="12"
+              >
+                {value}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Bars */}
+        {data.map((month, index) => {
+          const x = padding.left + index * groupWidth + (chartWidth - padding.left - padding.right - data.length * groupWidth) / 2;
+          const inboundHeight = month.inboundTotal * scale;
+          const outboundHeight = month.outboundTotal * scale;
+          const maxHeight = Math.max(inboundHeight, outboundHeight);
+
+          return (
+            <g key={month.monthKey}>
+              {/* Inbound bar */}
+              <rect
+                x={x}
+                y={chartHeight - padding.bottom - inboundHeight}
+                width={barWidth}
+                height={inboundHeight}
+                rx="2"
+                className="fill-green-500 dark:fill-green-400"
+                opacity={0.8}
+              />
+              {/* Outbound bar */}
+              <rect
+                x={x + barWidth + 5}
+                y={chartHeight - padding.bottom - outboundHeight}
+                width={barWidth}
+                height={outboundHeight}
+                rx="2"
+                className="fill-blue-500 dark:fill-blue-400"
+                opacity={0.8}
+              />
+              {/* Month label */}
+              <text
+                x={x + barWidth + 2.5}
+                y={chartHeight - padding.bottom + 20}
+                textAnchor="middle"
+                className="fill-current text-gray-600 dark:text-gray-400"
+                fontSize="12"
+              >
+                {month.month}
+              </text>
+              {/* Values */}
+              {maxHeight > 0 && (
+                <text
+                  x={x + barWidth + 2.5}
+                  y={chartHeight - padding.bottom - maxHeight - 5}
+                  textAnchor="middle"
+                  className="fill-current text-gray-700 dark:text-gray-300"
+                  fontSize="10"
+                >
+                  {Math.max(month.inboundTotal, month.outboundTotal)}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Legend */}
+        <g transform={`translate(${chartWidth - 200}, ${chartHeight - 25})`}>
+          <rect x="0" y="0" width="12" height="12" className="fill-green-500 dark:fill-green-400" />
+          <text x="18" y="10" className="fill-current text-gray-600 dark:text-gray-400" fontSize="12">
+            Inbound
+          </text>
+          <rect x="80" y="0" width="12" height="12" className="fill-blue-500 dark:fill-blue-400" />
+          <text x="98" y="10" className="fill-current text-gray-600 dark:text-gray-400" fontSize="12">
+            Outbound
+          </text>
+        </g>
+      </svg>
     </div>
   );
 }

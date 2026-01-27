@@ -21,6 +21,7 @@ import { fetchExtensions, fetchExtensionCDR, fetchCallStats, fetchCallStatsByTyp
 import type { Extension, CallRecord, MonthlyCallData } from '@/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
+import { MonthlyChart } from './MonthlyChart';
 
 export function ExtensionDetailReport() {
   const [extensions, setExtensions] = useState<Extension[]>([]);
@@ -158,12 +159,12 @@ export function ExtensionDetailReport() {
     };
   };
 
-  const getPriorMonths = (referenceDate: string, count: number) => {
+  const getRecentMonths = (referenceDate: string, count: number) => {
     const ref = new Date(referenceDate);
     const startOfMonth = new Date(ref.getFullYear(), ref.getMonth(), 1);
     const months: Array<{ year: number; month: number; key: string; label: string }> = [];
 
-    for (let i = count; i >= 1; i -= 1) {
+    for (let i = count - 1; i >= 0; i -= 1) {
       const date = new Date(startOfMonth);
       date.setMonth(startOfMonth.getMonth() - i);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -204,7 +205,7 @@ export function ExtensionDetailReport() {
       return [];
     }
 
-    const months = getPriorMonths(referenceDate, 3);
+    const months = getRecentMonths(referenceDate, 3);
     const monthlyDataMap = new Map<string, MonthlyCallData>();
 
     for (const monthInfo of months) {
@@ -293,7 +294,7 @@ export function ExtensionDetailReport() {
       );
 
       setCallRecords(records);
-      const monthlyStats = await loadMonthlyData(selectedExtension, startDate);
+      const monthlyStats = await loadMonthlyData(selectedExtension, endDate);
       setMonthlyData(monthlyStats);
       setHasGenerated(true);
 
@@ -416,6 +417,107 @@ export function ExtensionDetailReport() {
         align: 'center',
       });
       yPos += 8;
+
+      if (monthlyData.length > 0) {
+        addText('Monthly Summary (Current + Previous 2 Months)', margin, yPos, {
+          fontSize: 10,
+          fontStyle: 'bold',
+          color: darkColor,
+        });
+        yPos += 6;
+
+        const maxCalls = Math.max(
+          ...monthlyData.map((d) => Math.max(d.inboundTotal, d.outboundTotal))
+        );
+        const chartHeight = 24;
+        const chartWidth = contentWidth;
+        const groupWidth = chartWidth / monthlyData.length;
+        const barWidth = Math.min(12, (groupWidth - 10) / 2);
+        const chartBottom = yPos + chartHeight;
+        const scale = maxCalls > 0 ? chartHeight / maxCalls : 0;
+
+        monthlyData.forEach((month, index) => {
+          const groupX = margin + index * groupWidth;
+          const inboundHeight = month.inboundTotal * scale;
+          const outboundHeight = month.outboundTotal * scale;
+          const inboundX = groupX + (groupWidth / 2) - barWidth - 2;
+          const outboundX = groupX + (groupWidth / 2) + 2;
+
+          pdf.setFillColor(...greenColor);
+          pdf.rect(inboundX, chartBottom - inboundHeight, barWidth, inboundHeight, 'F');
+          pdf.setFillColor(...primaryColor);
+          pdf.rect(outboundX, chartBottom - outboundHeight, barWidth, outboundHeight, 'F');
+
+          addText(month.month, groupX + groupWidth / 2, chartBottom + 6, {
+            fontSize: 6,
+            color: grayColor,
+            align: 'center',
+          });
+        });
+
+        yPos = chartBottom + 12;
+
+        const summaryColWidths = [22, 16, 16, 16, 16, 16, 16, 26];
+        const summaryHeaders = ['Month', 'In Ans', 'In NA', 'In Total', 'Out Ans', 'Out NA', 'Out Total', 'Duration'];
+
+        const drawSummaryHeader = (y: number) => {
+          pdf.setFillColor(243, 244, 246);
+          pdf.rect(margin, y - 4, contentWidth, 7, 'F');
+
+          let xPos = margin;
+          summaryHeaders.forEach((header, i) => {
+            addText(header, xPos + summaryColWidths[i] / 2, y, {
+              fontSize: 7,
+              fontStyle: 'bold',
+              color: grayColor,
+              align: 'center',
+            });
+            xPos += summaryColWidths[i];
+          });
+          return y + 5;
+        };
+
+        yPos = drawSummaryHeader(yPos);
+
+        monthlyData.forEach((month, index) => {
+          if (yPos > pageHeight - 35) {
+            pdf.addPage();
+            yPos = margin;
+            yPos = drawSummaryHeader(yPos);
+          }
+
+          if (index % 2 === 0) {
+            pdf.setFillColor(249, 250, 251);
+            pdf.rect(margin, yPos - 3, contentWidth, 6, 'F');
+          }
+
+          let xPos = margin;
+          const rowData = [
+            month.month,
+            month.inboundAnswered,
+            month.inboundNoAnswer,
+            month.inboundTotal,
+            month.outboundAnswered,
+            month.outboundNoAnswer,
+            month.outboundTotal,
+            formatDurationHMS(month.totalTalkDuration),
+          ];
+
+          rowData.forEach((value, i) => {
+            const color = i === 2 || i === 5 ? orangeColor : darkColor;
+            addText(String(value), xPos + summaryColWidths[i] / 2, yPos, {
+              fontSize: 7,
+              color,
+              align: 'center',
+            });
+            xPos += summaryColWidths[i];
+          });
+
+          yPos += 6;
+        });
+
+        yPos += 4;
+      }
 
       // Table
       const colWidths = [45, 30, 50, 50, 30, 35, 35];
@@ -699,18 +801,18 @@ export function ExtensionDetailReport() {
               </div>
             )}
 
-            {/* Monthly Activity (Prior 3 Months) */}
+            {/* Monthly Activity (Current + Previous 2 Months) */}
             {monthlyData.length > 0 && (
               <div className="space-y-6 mb-6">
                 <Card>
                   <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-                    Monthly Activity Comparison (Prior 3 Months)
+                    Monthly Activity Comparison (Current + Previous 2 Months)
                   </h4>
                   <MonthlyChart data={monthlyData} />
                 </Card>
                 <Card>
                   <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                    Monthly Breakdown (Prior 3 Months)
+                    Monthly Breakdown (Current + Previous 2 Months)
                   </h4>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -918,133 +1020,6 @@ export function ExtensionDetailReport() {
           </Card>
         </motion.div>
       )}
-    </div>
-  );
-}
-
-interface MonthlyChartProps {
-  data: MonthlyCallData[];
-}
-
-function MonthlyChart({ data }: MonthlyChartProps) {
-  if (data.length === 0) return null;
-
-  const maxCalls = Math.max(
-    ...data.map((d) => Math.max(d.inboundTotal, d.outboundTotal))
-  );
-  const chartHeight = 200;
-  const chartWidth = 800;
-  const padding = { top: 20, right: 20, bottom: 60, left: 50 };
-  const barWidth = Math.min(
-    (chartWidth - padding.left - padding.right) / data.length / 3,
-    35
-  );
-  const groupWidth = barWidth * 2 + 15;
-
-  const scale = maxCalls > 0 ? (chartHeight - padding.top - padding.bottom) / maxCalls : 0;
-
-  return (
-    <div className="overflow-x-auto">
-      <svg
-        viewBox={`0 0 ${chartWidth} ${chartHeight + 20}`}
-        className="w-full min-w-[600px]"
-        style={{ maxHeight: '300px' }}
-      >
-        {/* Y-axis grid lines */}
-        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
-          const y = padding.top + (chartHeight - padding.top - padding.bottom) * (1 - tick);
-          const value = Math.round(maxCalls * tick);
-          return (
-            <g key={tick}>
-              <line
-                x1={padding.left}
-                y1={y}
-                x2={chartWidth - padding.right}
-                y2={y}
-                stroke="currentColor"
-                strokeOpacity={0.1}
-                className="text-gray-400"
-              />
-              <text
-                x={padding.left - 10}
-                y={y + 4}
-                textAnchor="end"
-                className="fill-current text-gray-500 dark:text-gray-400"
-                fontSize="12"
-              >
-                {value}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Bars */}
-        {data.map((month, index) => {
-          const x = padding.left + index * groupWidth + (chartWidth - padding.left - padding.right - data.length * groupWidth) / 2;
-          const inboundHeight = month.inboundTotal * scale;
-          const outboundHeight = month.outboundTotal * scale;
-          const maxHeight = Math.max(inboundHeight, outboundHeight);
-
-          return (
-            <g key={month.monthKey}>
-              {/* Inbound bar */}
-              <rect
-                x={x}
-                y={chartHeight - padding.bottom - inboundHeight}
-                width={barWidth}
-                height={inboundHeight}
-                rx="2"
-                className="fill-green-500 dark:fill-green-400"
-                opacity={0.8}
-              />
-              {/* Outbound bar */}
-              <rect
-                x={x + barWidth + 5}
-                y={chartHeight - padding.bottom - outboundHeight}
-                width={barWidth}
-                height={outboundHeight}
-                rx="2"
-                className="fill-blue-500 dark:fill-blue-400"
-                opacity={0.8}
-              />
-              {/* Month label */}
-              <text
-                x={x + barWidth + 2.5}
-                y={chartHeight - padding.bottom + 20}
-                textAnchor="middle"
-                className="fill-current text-gray-600 dark:text-gray-400"
-                fontSize="12"
-              >
-                {month.month}
-              </text>
-              {/* Values */}
-              {maxHeight > 0 && (
-                <text
-                  x={x + barWidth + 2.5}
-                  y={chartHeight - padding.bottom - maxHeight - 5}
-                  textAnchor="middle"
-                  className="fill-current text-gray-700 dark:text-gray-300"
-                  fontSize="10"
-                >
-                  {Math.max(month.inboundTotal, month.outboundTotal)}
-                </text>
-              )}
-            </g>
-          );
-        })}
-
-        {/* Legend */}
-        <g transform={`translate(${chartWidth - 200}, ${chartHeight - 25})`}>
-          <rect x="0" y="0" width="12" height="12" className="fill-green-500 dark:fill-green-400" />
-          <text x="18" y="10" className="fill-current text-gray-600 dark:text-gray-400" fontSize="12">
-            Inbound
-          </text>
-          <rect x="80" y="0" width="12" height="12" className="fill-blue-500 dark:fill-blue-400" />
-          <text x="98" y="10" className="fill-current text-gray-600 dark:text-gray-400" fontSize="12">
-            Outbound
-          </text>
-        </g>
-      </svg>
     </div>
   );
 }

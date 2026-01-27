@@ -81,11 +81,11 @@ export function ExtensionDetailReport() {
 
   const getDispositionStyle = (disposition: string) => {
     const d = disposition?.toLowerCase() || '';
-    if (d.includes('answer')) {
-      return { icon: PhoneIncoming, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' };
-    }
     if (d.includes('no answer') || d.includes('noanswer') || d.includes('missed')) {
       return { icon: PhoneMissed, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-900/30' };
+    }
+    if (d.includes('answer')) {
+      return { icon: PhoneIncoming, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' };
     }
     if (d.includes('busy')) {
       return { icon: Phone, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-900/30' };
@@ -295,7 +295,37 @@ export function ExtensionDetailReport() {
 
       setCallRecords(records);
       const monthlyStats = await loadMonthlyData(selectedExtension, endDate);
-      setMonthlyData(monthlyStats);
+
+      // Append the selected time period as an additional entry
+      const isAnsweredRecord = (r: CallRecord) => {
+        const d = r.disposition?.toLowerCase() || '';
+        if (d.includes('no answer') || d.includes('noanswer') || d.includes('missed')) return false;
+        return d.includes('answer');
+      };
+      const isMissedRecord = (r: CallRecord) => {
+        const d = r.disposition?.toLowerCase() || '';
+        return d.includes('no answer') || d.includes('noanswer') || d.includes('missed') ||
+               d.includes('busy') || d.includes('failed') || d.includes('cancel');
+      };
+
+      const inboundRecs = records.filter(r => r.call_type === 'Inbound');
+      const outboundRecs = records.filter(r => r.call_type === 'Outbound');
+      const startLabel = new Date(startDate).toLocaleDateString('default', { month: 'short', day: 'numeric' });
+      const endLabel = new Date(endDate).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
+
+      const selectedPeriodEntry: MonthlyCallData = {
+        month: `${startLabel} - ${endLabel}`,
+        monthKey: 'zz-selected',
+        inboundAnswered: inboundRecs.filter(isAnsweredRecord).length,
+        inboundNoAnswer: inboundRecs.filter(isMissedRecord).length,
+        inboundTotal: inboundRecs.length,
+        outboundAnswered: outboundRecs.filter(isAnsweredRecord).length,
+        outboundNoAnswer: outboundRecs.filter(isMissedRecord).length,
+        outboundTotal: outboundRecs.length,
+        totalTalkDuration: records.reduce((sum, r) => sum + (r.talk_duration || 0), 0),
+      };
+
+      setMonthlyData([...monthlyStats, selectedPeriodEntry]);
       setHasGenerated(true);
 
       if (records.length === 0) {
@@ -380,7 +410,6 @@ export function ExtensionDetailReport() {
       yPos += 10;
 
       // Summary stats
-      const answered = callRecords.filter(r => r.disposition?.toLowerCase().includes('answer')).length;
       const missed = callRecords.filter(r => {
         const d = r.disposition?.toLowerCase() || '';
         return d.includes('no answer') || d.includes('noanswer') || d.includes('missed');
@@ -388,16 +417,22 @@ export function ExtensionDetailReport() {
       const totalDuration = callRecords.reduce((sum, r) => sum + (r.talk_duration || 0), 0);
       const inbound = callRecords.filter(r => r.call_type === 'Inbound').length;
       const outbound = callRecords.filter(r => r.call_type === 'Outbound').length;
+      const answeredForAvg = callRecords.filter(r => (r.talk_duration || 0) > 0);
+      const avgDuration = answeredForAvg.length > 0 ? Math.round(totalDuration / answeredForAvg.length) : 0;
+
+      const purpleColor: [number, number, number] = [147, 51, 234];
+      const indigoColor: [number, number, number] = [99, 102, 241];
 
       // Summary boxes
-      const boxWidth = (contentWidth - 20) / 5;
+      const boxWidth = (contentWidth - 25) / 6;
       const boxHeight = 15;
       const summaryData = [
         { label: 'Total Calls', value: callRecords.length.toString(), color: primaryColor },
         { label: 'Inbound', value: inbound.toString(), color: greenColor },
         { label: 'Outbound', value: outbound.toString(), color: primaryColor },
-        { label: 'Answered', value: answered.toString(), color: greenColor },
         { label: 'Missed/Failed', value: missed.toString(), color: redColor },
+        { label: 'Total Time', value: formatDurationHMS(totalDuration), color: purpleColor },
+        { label: 'Avg Time/Call', value: formatDurationHMS(avgDuration), color: indigoColor },
       ];
 
       summaryData.forEach((item, i) => {
@@ -408,15 +443,7 @@ export function ExtensionDetailReport() {
         addText(item.value, x + boxWidth / 2, yPos + 11, { fontSize: 11, fontStyle: 'bold', color: item.color, align: 'center' });
       });
 
-      yPos += boxHeight + 5;
-
-      // Total duration
-      addText(`Total Talk Time: ${formatDurationHMS(totalDuration)}`, pageWidth / 2, yPos, {
-        fontSize: 9,
-        color: grayColor,
-        align: 'center',
-      });
-      yPos += 8;
+      yPos += boxHeight + 8;
 
       if (monthlyData.length > 0) {
         addText('Monthly Summary (Current + Previous 2 Months)', margin, yPos, {
@@ -577,8 +604,8 @@ export function ExtensionDetailReport() {
         // Status
         const d = record.disposition?.toLowerCase() || '';
         let statusColor = grayColor;
-        if (d.includes('answer')) statusColor = greenColor;
-        else if (d.includes('no answer') || d.includes('noanswer') || d.includes('missed')) statusColor = orangeColor;
+        if (d.includes('no answer') || d.includes('noanswer') || d.includes('missed')) statusColor = orangeColor;
+        else if (d.includes('answer')) statusColor = greenColor;
         else if (d.includes('busy')) statusColor = orangeColor;
         addText(record.disposition || '-', xPos + 2, yPos, { fontSize: 7, color: statusColor });
         xPos += colWidths[4];
@@ -766,7 +793,7 @@ export function ExtensionDetailReport() {
 
             {/* Summary Stats */}
             {callRecords.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
                 <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-center">
                   <p className="text-sm text-gray-600 dark:text-gray-400">Total Calls</p>
                   <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{callRecords.length}</p>
@@ -783,12 +810,6 @@ export function ExtensionDetailReport() {
                     {callRecords.filter(r => r.call_type === 'Outbound').length}
                   </p>
                 </div>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 text-center">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Answered</p>
-                  <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    {callRecords.filter(r => r.disposition?.toLowerCase().includes('answer')).length}
-                  </p>
-                </div>
                 <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 text-center">
                   <p className="text-sm text-gray-600 dark:text-gray-400">Missed/Failed</p>
                   <p className="text-2xl font-bold text-red-600 dark:text-red-400">
@@ -796,6 +817,22 @@ export function ExtensionDetailReport() {
                       const d = r.disposition?.toLowerCase() || '';
                       return d.includes('no answer') || d.includes('noanswer') || d.includes('missed') || d.includes('failed') || d.includes('cancel');
                     }).length}
+                  </p>
+                </div>
+                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 text-center">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Total Time</p>
+                  <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                    {formatDurationHMS(callRecords.reduce((sum, r) => sum + (r.talk_duration || 0), 0))}
+                  </p>
+                </div>
+                <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg p-4 text-center">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Avg Time/Call</p>
+                  <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                    {(() => {
+                      const answered = callRecords.filter(r => (r.talk_duration || 0) > 0);
+                      const total = answered.reduce((sum, r) => sum + (r.talk_duration || 0), 0);
+                      return formatDurationHMS(answered.length > 0 ? Math.round(total / answered.length) : 0);
+                    })()}
                   </p>
                 </div>
               </div>

@@ -325,7 +325,12 @@ export function ExtensionDetailReport() {
         totalTalkDuration: records.reduce((sum, r) => sum + (r.talk_duration || 0), 0),
       };
 
-      setMonthlyData([...monthlyStats, selectedPeriodEntry]);
+      // Exclude the end date's month since the selected period covers it
+      const endMonth = new Date(endDate);
+      const endMonthKey = `${endMonth.getFullYear()}-${String(endMonth.getMonth() + 1).padStart(2, '0')}`;
+      const filteredMonthlyStats = monthlyStats.filter(m => m.monthKey !== endMonthKey);
+
+      setMonthlyData([...filteredMonthlyStats, selectedPeriodEntry]);
       setHasGenerated(true);
 
       if (records.length === 0) {
